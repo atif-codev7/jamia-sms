@@ -262,3 +262,123 @@ def test_15_missing_record_returns_404():
     headers = get_auth_headers("faculty", "faculty123")
     res = client.get("/students/9999", headers=headers)
     assert res.status_code == 404
+
+
+# TC-16: Department analytics calculates batch KPIs and course performance
+def test_16_department_analytics():
+    headers = get_auth_headers("faculty", "faculty123")
+    res = client.get("/analytics/department", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_students"] == 3
+    assert data["total_courses"] >= 4
+    assert data["average_sgpa"] > 0
+    assert data["eligible_count"] >= 1
+    assert data["shortage_count"] >= 1
+    assert len(data["course_performance"]) >= 4
+
+
+# TC-17: Attendance recovery calculator computes exact consecutive classes needed for shortage
+def test_17_attendance_recovery_shortage():
+    headers = get_auth_headers("diya", "student123")
+    res = client.get("/me/recovery-calculator", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["student_name"] == "Diya Patel"
+    assert data["overall_attendance_eligibility"] == "Shortage"
+    assert data["overall_consecutive_needed"] > 0
+    assert data["overall_buffer_can_miss"] == 0
+    # In BTCSE-704, Diya attended 24 of 40 (60%). Needed = ceil(3*40 - 4*24) = 24
+    adbms = next(c for c in data["courses"] if c["course_code"] == "BTCSE-704")
+    assert adbms["consecutive_classes_needed"] == 24
+    assert adbms["status"] == "Shortage"
+
+
+# TC-18: Attendance recovery calculator provides buffer classes for eligible student
+def test_18_attendance_recovery_eligible_buffer():
+    headers = get_auth_headers("aarav", "student123")
+    res = client.get("/me/recovery-calculator", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["overall_attendance_eligibility"] == "Eligible"
+    assert data["overall_consecutive_needed"] == 0
+    assert data["overall_buffer_can_miss"] >= 0
+
+
+# TC-19: Digital Admit Card gate unlocks for eligible student (Aarav)
+def test_19_admit_card_eligible_unlocked():
+    headers = get_auth_headers("aarav", "student123")
+    res = client.get("/me/admit-card", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["is_eligible"] is True
+    assert "ELIGIBLE" in data["status_text"]
+    assert data["debarment_reason"] is None
+    assert len(data["enrolled_courses"]) == 3
+    assert data["qr_verification_hash"] is not None
+
+
+# TC-20: Digital Admit Card gate locks and debars student with shortage (Diya)
+def test_20_admit_card_shortage_debarred():
+    headers = get_auth_headers("diya", "student123")
+    res = client.get("/me/admit-card", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["is_eligible"] is False
+    assert "DEBARRED" in data["status_text"]
+    assert "Ordinance 15" in data["debarment_reason"]
+    assert data["hall_ticket_no"] == "WITHHELD-SHORTAGE"
+
+
+# TC-21: Digital No-Dues clearance status check
+def test_21_digital_no_dues_clearance():
+    headers = get_auth_headers("aarav", "student123")
+    res = client.get("/me/no-dues", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["library"]["cleared"] is True
+    assert data["accounts"]["cleared"] is True
+    assert data["is_all_cleared"] is True
+
+
+# TC-22: Batch attendance register increments classes correctly
+def test_22_batch_attendance_register():
+    headers = get_auth_headers("faculty", "faculty123")
+    res = client.post(
+        "/attendance/batch-register",
+        headers=headers,
+        json={
+            "course_code": "BTCSE-702",
+            "records": [
+                {"student_id": 1, "is_present": True},
+                {"student_id": 2, "is_present": False},
+            ],
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["course_code"] == "BTCSE-702"
+    assert data["total_records_updated"] == 2
+    assert data["present_count"] == 1
+    assert data["absent_count"] == 1
+
+
+# TC-23: AI Chat assistant answers shortage queries via tool calling
+def test_23_ai_chat_shortage_tool():
+    res = client.post("/ai/chat", json={"message": "Who is debarred due to attendance shortage?"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["tool_called"] == "query_attendance_shortages"
+    assert "Diya Patel" in data["reply"]
+    assert "Ordinance 15" in data["reply"]
+
+
+# TC-24: AI Chat assistant drafts official exam form notice
+def test_24_ai_chat_exam_notice_tool():
+    res = client.post("/ai/chat", json={"message": "Draft exam form submission deadline notice"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["tool_called"] == "draft_exam_form_notice"
+    assert "JAMIA HAMDARD" in data["reply"]
+    assert "Late Fine" in data["reply"]
+

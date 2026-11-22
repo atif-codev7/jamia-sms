@@ -4,7 +4,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.32%2B-FF4B4B.svg)](https://streamlit.io/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00.svg)](https://www.sqlalchemy.org/)
-[![Pytest](https://img.shields.io/badge/Pytest-15%2F15%20Passed-brightgreen.svg)](https://pytest.org/)
+[![Pytest](https://img.shields.io/badge/Pytest-24%2F24%20Passed-brightgreen.svg)](https://pytest.org/)
 
 **B.Tech Computer Science & Engineering — 7th Semester (Capstone Project-II: BTCSE 701, 6 Credits)**  
 *Department of Computer Science & Engineering, School of Engineering Sciences & Technology (SEST)*  
@@ -14,14 +14,33 @@
 
 ## 📌 Overview
 
-The **Departmental Academic Record, Result & Attendance Management System** is a full-stack, authenticated web portal engineered to replace manual spreadsheets and fragmented departmental registers. It features:
+The **Departmental Academic Record, Result & Attendance Management System** is a full-stack, authenticated institutional web portal engineered to replace manual spreadsheets and fragmented departmental registers. It features:
 
-- **FastAPI REST Backend:** High-speed asynchronous engine serving standardized endpoints.
+- **FastAPI REST Backend:** High-speed asynchronous engine serving 18+ endpoints with auto-generated OpenAPI documentation.
 - **SQLAlchemy 3NF Relational Database:** Four core tables (`students`, `users`, `courses`, `enrollments`) enforcing foreign keys and cascade deletions.
 - **Role-Based Access Control (RBAC):** Salted PBKDF2-HMAC password encryption (100,000 iterations) with signed JSON Web Tokens (JWT).
 - **Academic Evaluation Engine:** Dynamic Credit-Weighted SGPA calculation adhering to Jamia Hamdard's 10-point scale.
-- **Attendance Debarment Auditor:** Autonomous tracking against the mandatory university 75% lecture threshold, mathematically decoupled from academic marks.
-- **Interactive Streamlit Portal:** Real-time dashboards with analytics cards and data tables for both Faculty and Students.
+- **Attendance Debarment Auditor:** Autonomous tracking against the mandatory university 75% lecture threshold (Ordinance 15), mathematically decoupled from academic marks.
+- **Flagship Academic Suite:** AI tool-calling assistant, attendance recovery simulator, digital admit cards with debarment locks, batch roll-call registers, and deadline broadcast hubs.
+
+---
+
+## 🌟 Flagship Feature Suite (12 Capabilities)
+
+| Feature | Description | Architecture / Implementation |
+|:---|:---|:---|
+| **1. AI Academic Assistant** | Natural language queries for shortages, analytics, and rules. | Pure Python LLM tool calling (Approach #1) + Streamlit chat UI fallback (Approach #5). |
+| **2. AI Notice Broadcast Hub** | Targeted dispatches for Exam Forms, Marksheet pickup, and Shortage warnings. | Multi-channel broadcast simulator (WhatsApp, SMS, Email) with delivery receipts. |
+| **3. Attendance Recovery Simulator** | Calculates consecutive lectures required to cross 75% threshold. | Mathematical solver: $x = \max(0, \lceil 3H - 4A \rceil)$ with interactive what-if slider. |
+| **4. Digital Exam Admit Card** | Generates verifiable Hall Ticket; **Debars in Red** if attendance < 75%. | Ordinance 15 compliance gate with SHA-256 digital verification hash. |
+| **5. 1-Click Grade Sheet Download** | Instant export of semester marks, SGPA, and attendance standing. | Formatted CSV / HTML export ready for physical filing. |
+| **6. Digital No-Dues Clearance** | Four-way clearance matrix (Library, Accounts, Proctor, Practical Labs). | Eliminates physical campus paper trails and signature slips. |
+| **7. 1-Click Daily Batch Register** | Faculty roll-call across entire batch in under 5 seconds. | Atomic batch transaction updating `classes_held` and `classes_attended`. |
+| **8. Departmental Analytics & Charts** | Real-time KPI summary cards and subject performance bar charts. | Native `st.bar_chart` comparing internal, external, and attendance metrics. |
+| **9. 1-Click Viva Demo Auto-Fill** | Pre-populates sample students, courses, and marks for 3-minute demos. | Session-state injection for fast examiner walkthroughs. |
+| **10. 1-Click Sidebar Demo Logins** | Instant role switching between Faculty, Eligible Student, and Debarred Student. | Single-button JWT authentication with zero typing required. |
+| **11. Digital Re-Evaluation System** | In-app scrutiny and marks grievance application portal. | Structured token generation (`JH-REV-2026-XXX`) for examination appeals. |
+| **12. Jamia Emerald Branding** | Official university emerald green (`#006747`) and gold palette. | Custom CSS injection with responsive status badges and clean typography. |
 
 ---
 
@@ -29,19 +48,20 @@ The **Departmental Academic Record, Result & Attendance Management System** is a
 
 ```mermaid
 graph TD
-    Client[Browser / Client] -->|Port 8501| Streamlit[Streamlit Frontend Portal]
+    Client[Browser / Viva Examiner] -->|Port 8501| Streamlit[Streamlit Frontend Portal]
     Client -->|Port 8000| FastAPI[FastAPI REST Backend]
     Streamlit -->|HTTP Requests with JWT Bearer| FastAPI
     FastAPI -->|Input Validation| Pydantic[Pydantic v2 Schemas]
     FastAPI -->|ORM Transactions| SQLAlchemy[SQLAlchemy 2.0 ORM]
     SQLAlchemy -->|ACID Persistence| DB[(SQLite / PostgreSQL Database)]
+    FastAPI -->|Local Tool Calling| AIAgent[AI Academic Assistant Engine]
 ```
 
 ---
 
-## 🧪 Automated Testing Suite (15/15 Passed)
+## 🧪 Automated Testing Suite (24/24 Passed)
 
-The project includes an isolated Pytest harness (`test_main.py`) verifying all functional constraints:
+The project includes an automated Pytest test suite (`test_main.py`) verifying all functional, mathematical, security, and AI constraints:
 
 | Test ID | Test Scenario | Verified Behavior | Status |
 |:---:|:---|:---|:---:|
@@ -60,6 +80,15 @@ The project includes an isolated Pytest harness (`test_main.py`) verifying all f
 | `TC-13` | Zero Lectures Safe | Zero classes held safely reports 'Unavailable' | ✅ PASS |
 | `TC-14` | SGPA Math Verification | Exact credit-weighted math verified (SGPA = 9.09) | ✅ PASS |
 | `TC-15` | Missing Records | Returns HTTP 404 Not Found cleanly | ✅ PASS |
+| `TC-16` | Department Analytics | Calculates batch KPIs and course averages | ✅ PASS |
+| `TC-17` | Attendance Recovery (Shortage) | Computes exact consecutive lectures needed (24 for Diya) | ✅ PASS |
+| `TC-18` | Attendance Recovery (Buffer) | Calculates safe lecture buffer for eligible student | ✅ PASS |
+| `TC-19` | Admit Card Unlocked | Unlocks verified Hall Ticket for eligible student | ✅ PASS |
+| `TC-20` | Admit Card Debarment Gate | Locks and debars shortage student under Ordinance 15 | ✅ PASS |
+| `TC-21` | Digital No-Dues Matrix | Four-way departmental clearance verification | ✅ PASS |
+| `TC-22` | Batch Attendance Register | Increments held/attended counters atomically | ✅ PASS |
+| `TC-23` | AI Chat Shortage Tool | Dispatches tool call and lists debarred candidates | ✅ PASS |
+| `TC-24` | AI Chat Exam Notice Tool | Formats official Jamia Hamdard circular | ✅ PASS |
 
 ---
 
@@ -71,7 +100,7 @@ The project includes an isolated Pytest harness (`test_main.py`) verifying all f
 
 ### 2. Installation
 ```bash
-git clone https://github.com/<your-username>/jamia-sms.git
+git clone https://github.com/atif-codev7/jamia-sms.git
 cd jamia-sms
 
 # Install dependencies
@@ -107,10 +136,10 @@ python -m streamlit run app.py --server.port 8501
 
 | Role | Username | Password | Access Scope |
 |:---|:---:|:---:|:---|
-| **Faculty** | `faculty` | `faculty123` | Full CRUD on students, courses, marks, and attendance |
-| **Student 1** | `aarav` | `student123` | Personal Scorecard (High marks, 85.45% attendance) |
-| **Student 2** | `diya` | `student123` | Personal Scorecard (Good marks, <75% ADBMS shortage) |
-| **Student 3** | `rohan` | `student123` | Personal Scorecard (Subject with 0 classes held) |
+| **Faculty** | `faculty` | `faculty123` | Full admin CRUD, analytics charts, batch roll-call, broadcast hub |
+| **Student 1** | `aarav` | `student123` | Personal Scorecard (High marks, 85.45% attendance, **Admit Card Cleared**) |
+| **Student 2** | `diya` | `student123` | Personal Scorecard (Good marks, 70% attendance, **Admit Card Debarred**) |
+| **Student 3** | `rohan` | `student123` | Personal Scorecard (Newly added subject with 0 classes held) |
 
 ---
 

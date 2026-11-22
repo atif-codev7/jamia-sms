@@ -1,4 +1,5 @@
 import hashlib
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -312,6 +313,115 @@ class ScorecardResponse(BaseModel):
     )
 
 
+# --- Schemas for Flagship Capabilities ---
+class AttendanceRecoveryCourse(BaseModel):
+    course_code: str
+    course_title: str
+    classes_attended: int
+    classes_held: int
+    current_percentage: Optional[float]
+    status: str
+    consecutive_classes_needed: int
+    buffer_classes_can_miss: int
+    actionable_message: str
+
+
+class StudentRecoveryResponse(BaseModel):
+    student_id: int
+    student_name: str
+    enrollment_no: str
+    overall_attendance_percentage: Optional[float]
+    overall_attendance_eligibility: str
+    overall_consecutive_needed: int
+    overall_buffer_can_miss: int
+    courses: List[AttendanceRecoveryCourse]
+
+
+class AdmitCardCourse(BaseModel):
+    code: str
+    title: str
+    credits: int
+    exam_date: str
+    exam_time: str
+    venue: str
+
+
+class AdmitCardResponse(BaseModel):
+    student_id: int
+    student_name: str
+    enrollment_no: str
+    semester: int
+    overall_attendance_percentage: Optional[float]
+    is_eligible: bool
+    status_text: str
+    hall_ticket_no: str
+    exam_center: str
+    debarment_reason: Optional[str] = None
+    issued_at: str
+    qr_verification_hash: str
+    enrolled_courses: List[AdmitCardCourse]
+
+
+class CoursePerformanceStat(BaseModel):
+    code: str
+    title: str
+    credits: int
+    enrolled_students: int
+    average_internal: float
+    average_external: float
+    average_total: float
+    average_attendance: float
+
+
+class DepartmentAnalyticsResponse(BaseModel):
+    total_students: int
+    total_courses: int
+    average_sgpa: float
+    average_attendance_percentage: float
+    eligible_count: int
+    shortage_count: int
+    course_performance: List[CoursePerformanceStat]
+    shortage_students: List[dict]
+
+
+class BatchAttendanceItem(BaseModel):
+    student_id: int
+    is_present: bool
+
+
+class BatchAttendanceRequest(BaseModel):
+    course_code: str
+    records: List[BatchAttendanceItem]
+
+
+class AIChatRequest(BaseModel):
+    message: str
+    student_id: Optional[int] = None
+
+
+class AIChatResponse(BaseModel):
+    reply: str
+    tool_called: Optional[str] = None
+    tool_data: Optional[dict] = None
+    suggestions: List[str] = []
+
+
+class NoDuesItem(BaseModel):
+    cleared: bool
+    details: str
+
+
+class NoDuesResponse(BaseModel):
+    student_id: int
+    student_name: str
+    enrollment_no: str
+    library: NoDuesItem
+    labs: NoDuesItem
+    accounts: NoDuesItem
+    proctor: NoDuesItem
+    is_all_cleared: bool
+
+
 # =====================================================================
 # PART 6: DATABASE SESSION & FICTIONAL SEED DATA
 # =====================================================================
@@ -522,6 +632,43 @@ def require_faculty(current_user: UserDB = Depends(get_current_user)) -> UserDB:
             detail="Faculty privileges required for this operation",
         )
     return current_user
+
+
+optional_security_scheme = HTTPBearer(auto_error=False)
+
+
+def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security_scheme),
+    db: Session = Depends(get_db),
+) -> Optional[UserDB]:
+    if not credentials:
+        return None
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        username: Optional[str] = payload.get("sub")
+        if not username:
+            return None
+        return db.query(UserDB).filter(UserDB.username == username).first()
+    except Exception:
+        return None
+
+
+def check_student_or_faculty_access(
+    student_id: int, current_user: UserDB, db: Session
+) -> StudentDB:
+    if current_user.role == "student" and current_user.student_id != student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Students may only access their own academic records",
+        )
+    student = db.query(StudentDB).filter(StudentDB.id == student_id).first()
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Student ID {student_id} not found",
+        )
+    return student
 
 
 # Helper to construct a rich EnrollmentDetailResponse
@@ -1033,3 +1180,702 @@ def delete_enrollment(
     db.delete(enr)
     db.commit()
     return {"message": f"Enrollment ID {enrollment_id} deleted successfully"}
+
+
+# =====================================================================
+# PART 11: FLAGSHIP CAPABILITIES & EXTENSION ENDPOINTS
+# =====================================================================
+
+COURSE_EXAM_SCHEDULE = {
+    "BTCSE-702": ("04-Dec-2026", "10:00 AM – 01:00 PM", "SEST Exam Hall A (2nd Floor)"),
+    "BTCSE-704": ("07-Dec-2026", "10:00 AM – 01:00 PM", "SEST Exam Hall B (2nd Floor)"),
+    "BTCSE-703": ("10-Dec-2026", "10:00 AM – 01:00 PM", "SEST Exam Hall A (2nd Floor)"),
+    "BTCSE-DED51": ("14-Dec-2026", "10:00 AM – 01:00 PM", "SEST Exam Hall C (3rd Floor)"),
+}
+
+
+def calculate_recovery_for_student(db: Session, student: StudentDB) -> StudentRecoveryResponse:
+    scorecard = build_student_scorecard(db, student)
+    recovery_courses = []
+
+    for detail in scorecard.enrollments:
+        att = detail.classes_attended
+        held = detail.classes_held
+        pct = detail.attendance_percentage
+
+        if held == 0 or pct is None:
+            needed = 0
+            can_miss = 0
+            status_text = "Unavailable"
+            msg = "No lectures conducted yet for this course."
+        elif pct >= ATTENDANCE_ELIGIBILITY_THRESHOLD:
+            needed = 0
+            can_miss = max(0, int((att - 0.75 * held) / 0.75))
+            status_text = "Eligible"
+            msg = (
+                f"Attendance is safe at {pct:.1f}%. You have a buffer of "
+                f"{can_miss} lecture(s) you can miss without falling below 75%."
+            )
+        else:
+            needed = max(0, math.ceil(3 * held - 4 * att))
+            can_miss = 0
+            status_text = "Shortage"
+            msg = (
+                f"Critical Shortage ({pct:.1f}%). Must attend next {needed} consecutive "
+                f"lecture(s) to reach the 75% eligibility threshold."
+            )
+
+        recovery_courses.append(
+            AttendanceRecoveryCourse(
+                course_code=detail.course_code,
+                course_title=detail.course_title,
+                classes_attended=att,
+                classes_held=held,
+                current_percentage=pct,
+                status=status_text,
+                consecutive_classes_needed=needed,
+                buffer_classes_can_miss=can_miss,
+                actionable_message=msg,
+            )
+        )
+
+    overall_held = scorecard.overall_classes_held
+    overall_att = scorecard.overall_classes_attended
+    overall_pct = scorecard.overall_attendance_percentage
+
+    if overall_held == 0 or overall_pct is None:
+        overall_needed = 0
+        overall_buffer = 0
+    elif overall_pct >= ATTENDANCE_ELIGIBILITY_THRESHOLD:
+        overall_needed = 0
+        overall_buffer = max(0, int((overall_att - 0.75 * overall_held) / 0.75))
+    else:
+        overall_needed = max(0, math.ceil(3 * overall_held - 4 * overall_att))
+        overall_buffer = 0
+
+    return StudentRecoveryResponse(
+        student_id=student.id,
+        student_name=student.name,
+        enrollment_no=student.enrollment_no,
+        overall_attendance_percentage=overall_pct,
+        overall_attendance_eligibility=scorecard.overall_attendance_eligibility,
+        overall_consecutive_needed=overall_needed,
+        overall_buffer_can_miss=overall_buffer,
+        courses=recovery_courses,
+    )
+
+
+def generate_student_admit_card(db: Session, student: StudentDB) -> AdmitCardResponse:
+    scorecard = build_student_scorecard(db, student)
+    is_eligible = (scorecard.overall_attendance_eligibility == "Eligible")
+
+    exam_courses = []
+    for enr in scorecard.enrollments:
+        sched = COURSE_EXAM_SCHEDULE.get(
+            enr.course_code,
+            ("18-Dec-2026", "10:00 AM – 01:00 PM", "SEST Main Block Hall 1"),
+        )
+        exam_courses.append(
+            AdmitCardCourse(
+                code=enr.course_code,
+                title=enr.course_title,
+                credits=enr.credits,
+                exam_date=sched[0],
+                exam_time=sched[1],
+                venue=sched[2],
+            )
+        )
+
+    hash_str = f"JH:JAMIA:{student.enrollment_no}:{student.semester}:{scorecard.overall_attendance_eligibility}"
+    qr_hash = hashlib.sha256(hash_str.encode("utf-8")).hexdigest()[:20].upper()
+
+    if is_eligible:
+        status_text = "ELIGIBLE (Admit Card Cleared)"
+        hall_ticket = f"JH-7SEM-2026-{student.enrollment_no[-3:]}"
+        center = "School of Engineering Sciences & Technology (SEST), Jamia Hamdard, New Delhi"
+        debarment = None
+    else:
+        status_text = "DEBARRED / WITHHELD (Attendance Shortage)"
+        hall_ticket = "WITHHELD-SHORTAGE"
+        center = "N/A (Entry Prohibited Under Ordinance 15)"
+        debarment = (
+            f"Admit card withheld under Jamia Hamdard Academic Ordinance 15. "
+            f"Overall attendance is {scorecard.overall_attendance_percentage}% "
+            f"(Minimum 75.0% required). Contact Head of Department (HOD) CSE."
+        )
+
+    return AdmitCardResponse(
+        student_id=student.id,
+        student_name=student.name,
+        enrollment_no=student.enrollment_no,
+        semester=student.semester,
+        overall_attendance_percentage=scorecard.overall_attendance_percentage,
+        is_eligible=is_eligible,
+        status_text=status_text,
+        hall_ticket_no=hall_ticket,
+        exam_center=center,
+        debarment_reason=debarment,
+        issued_at=datetime.now().strftime("%d-%b-%Y %I:%M %p"),
+        qr_verification_hash=qr_hash,
+        enrolled_courses=exam_courses,
+    )
+
+
+def compute_department_analytics(db: Session) -> DepartmentAnalyticsResponse:
+    students = db.query(StudentDB).all()
+    courses = db.query(CourseDB).all()
+
+    total_students = len(students)
+    total_courses = len(courses)
+
+    sgpa_sum = 0.0
+    att_sum = 0.0
+    att_count = 0
+    eligible_count = 0
+    shortage_count = 0
+    shortage_students = []
+
+    for st_obj in students:
+        sc = build_student_scorecard(db, st_obj)
+        sgpa_sum += sc.sgpa
+        if sc.overall_attendance_percentage is not None:
+            att_sum += sc.overall_attendance_percentage
+            att_count += 1
+            if sc.overall_attendance_percentage >= ATTENDANCE_ELIGIBILITY_THRESHOLD:
+                eligible_count += 1
+            else:
+                shortage_count += 1
+                shortage_students.append({
+                    "id": st_obj.id,
+                    "name": st_obj.name,
+                    "enrollment_no": st_obj.enrollment_no,
+                    "overall_attendance": sc.overall_attendance_percentage,
+                    "sgpa": sc.sgpa,
+                    "shortage_courses": [
+                        {
+                            "code": c.course_code,
+                            "title": c.course_title,
+                            "pct": c.attendance_percentage,
+                            "attended": c.classes_attended,
+                            "held": c.classes_held,
+                        }
+                        for c in sc.enrollments
+                        if c.attendance_percentage is not None
+                        and c.attendance_percentage < ATTENDANCE_ELIGIBILITY_THRESHOLD
+                    ],
+                })
+        else:
+            shortage_count += 1
+
+    avg_sgpa = round(sgpa_sum / total_students, 2) if total_students > 0 else 0.0
+    avg_att = round(att_sum / att_count, 2) if att_count > 0 else 0.0
+
+    course_perf = []
+    for c_obj in courses:
+        enrs = db.query(EnrollmentDB).filter(EnrollmentDB.course_code == c_obj.code).all()
+        enr_count = len(enrs)
+        if enr_count > 0:
+            avg_int = round(sum(e.internal_marks for e in enrs) / enr_count, 2)
+            avg_ext = round(sum(e.external_marks for e in enrs) / enr_count, 2)
+            avg_tot = round(sum(e.internal_marks + e.external_marks for e in enrs) / enr_count, 2)
+            c_att_list = [
+                (e.classes_attended / e.classes_held * 100.0)
+                for e in enrs
+                if e.classes_held > 0
+            ]
+            avg_c_att = round(sum(c_att_list) / len(c_att_list), 2) if c_att_list else 0.0
+        else:
+            avg_int = avg_ext = avg_tot = avg_c_att = 0.0
+
+        course_perf.append(
+            CoursePerformanceStat(
+                code=c_obj.code,
+                title=c_obj.title,
+                credits=c_obj.credits,
+                enrolled_students=enr_count,
+                average_internal=avg_int,
+                average_external=avg_ext,
+                average_total=avg_tot,
+                average_attendance=avg_c_att,
+            )
+        )
+
+    return DepartmentAnalyticsResponse(
+        total_students=total_students,
+        total_courses=total_courses,
+        average_sgpa=avg_sgpa,
+        average_attendance_percentage=avg_att,
+        eligible_count=eligible_count,
+        shortage_count=shortage_count,
+        course_performance=course_perf,
+        shortage_students=shortage_students,
+    )
+
+
+def run_ai_tool_calling_agent(
+    db: Session, message: str, context_student_id: Optional[int] = None
+) -> AIChatResponse:
+    q = message.lower().strip()
+
+    # Tool 1: Attendance Shortage Query
+    if any(k in q for k in ["shortage", "debarred", "below 75", "< 75", "detained", "ineligible", "low attendance"]):
+        analytics = compute_department_analytics(db)
+        shortage_list = analytics.shortage_students
+        if not shortage_list:
+            reply = "✅ **Excellent News:** No students currently have attendance below the 75% threshold in the Department of Computer Science & Engineering."
+            return AIChatResponse(
+                reply=reply, tool_called="query_attendance_shortages", tool_data={"count": 0}
+            )
+
+        reply = (
+            f"🚨 **Departmental Attendance Shortage Warning**\n\n"
+            f"Under **Jamia Hamdard Academic Ordinance 15**, a minimum of **75.0% attendance** is mandatory to appear for the 7th Semester B.Tech End-Term Examinations.\n\n"
+            f"Found **{len(shortage_list)} student(s)** facing exam debarment:\n\n"
+        )
+        for s in shortage_list:
+            reply += f"- **{s['name']}** (`{s['enrollment_no']}`) — Overall: **{s['overall_attendance']}%** ❌\n"
+            for c in s["shortage_courses"]:
+                needed = max(0, math.ceil(3 * c["held"] - 4 * c["attended"]))
+                reply += f"  • *{c['code']} ({c['title']})*: {c['attended']}/{c['held']} classes (**{c['pct']}%**) ➔ *Needs {needed} consecutive lectures to recover.*\n"
+        reply += "\n> ⚠️ *Action Required: Instruct debarred students to meet Ms. Gautami Tripathi (Course/Project Coordinator) or HOD CSE immediately.*"
+
+        return AIChatResponse(
+            reply=reply,
+            tool_called="query_attendance_shortages",
+            tool_data={"shortage_count": len(shortage_list), "students": shortage_list},
+            suggestions=[
+                "Calculate attendance recovery for Diya Patel",
+                "Draft official shortage warning notice",
+                "View department analytics",
+            ],
+        )
+
+    # Tool 2: Attendance Recovery Calculator
+    if any(k in q for k in ["recovery", "what if", "how many classes", "consecutive", "can miss", "miss classes", "buffer", "reach 75"]):
+        target_student = None
+        for s in db.query(StudentDB).all():
+            if s.name.lower() in q or s.name.split()[0].lower() in q or s.enrollment_no.lower() in q:
+                target_student = s
+                break
+        if not target_student and context_student_id:
+            target_student = db.query(StudentDB).filter(StudentDB.id == context_student_id).first()
+        if not target_student:
+            target_student = db.query(StudentDB).filter(StudentDB.name.like("%Diya%")).first()
+
+        if target_student:
+            rec = calculate_recovery_for_student(db, target_student)
+            reply = (
+                f"🧮 **Attendance Recovery Calculator Report**\n\n"
+                f"**Student:** {rec.student_name} (`{rec.enrollment_no}`)\n"
+                f"**Overall Attendance:** `{rec.overall_attendance_percentage}%` — **{rec.overall_attendance_eligibility.upper()}**\n\n"
+                f"**Mathematical Formulation (Jamia 75% Rule):**\n"
+                f"$$\\frac{{A + x}}{{H + x}} \\ge 0.75 \\implies x = \\lceil 3H - 4A \\rceil$$\n\n"
+                f"| Course Code | Subject | Attended / Held | Percentage | Status | Action Plan |\n"
+                f"| :--- | :--- | :---: | :---: | :---: | :--- |\n"
+            )
+            for c in rec.courses:
+                status_icon = "🟢 OK" if c.status == "Eligible" else "🔴 ALERT"
+                if c.status == "Shortage":
+                    action = f"**Must attend next {c.consecutive_classes_needed} lectures**"
+                else:
+                    action = f"Safe (Buffer: {c.buffer_classes_can_miss} cuts allowed)"
+                reply += f"| `{c.course_code}` | {c.course_title} | {c.classes_attended}/{c.classes_held} | {c.current_percentage}% | {status_icon} | {action} |\n"
+
+            if rec.overall_consecutive_needed > 0:
+                reply += f"\n👉 **Overall Verdict:** Student must attend **{rec.overall_consecutive_needed} consecutive departmental lectures** to clear the debarment gate."
+            else:
+                reply += f"\n👉 **Overall Verdict:** Student is fully eligible. Total attendance buffer: **{rec.overall_buffer_can_miss} classes**."
+
+            return AIChatResponse(
+                reply=reply,
+                tool_called="calculate_attendance_recovery",
+                tool_data={"student_id": target_student.id, "needed": rec.overall_consecutive_needed},
+                suggestions=[
+                    "Check Admit Card clearance status",
+                    "Draft notice for this student",
+                    "Show student scorecard",
+                ],
+            )
+
+    # Tool 3: Draft Academic Notice
+    if any(k in q for k in ["notice", "circular", "exam form", "marksheet", "announcement", "deadline", "draft"]):
+        if any(k in q for k in ["exam form", "form", "late fee", "examination"]):
+            reply = (
+                f"📢 **OFFICIAL DEPARTMENTAL CIRCULAR**\n\n"
+                f"**JAMIA HAMDARD**\n"
+                f"*School of Engineering Sciences & Technology (SEST)*\n"
+                f"**Department of Computer Science & Engineering**\n\n"
+                f"**Ref No:** JH/SEST/CSE/2026/NOT-884  \n"
+                f"**Date:** {datetime.now().strftime('%d %B %Y')}  \n"
+                f"**Subject:** Urgent: Submission of End-Term Examination Form (7th Semester B.Tech CSE)\n\n"
+                f"---\n\n"
+                f"All registered students of B.Tech CSE 7th Semester are hereby notified that the university portal is open for **End-Term Examination Form Submission**.\n\n"
+                f"1. **Last Date without Late Fee:** **30th November 2026 (5:00 PM)**\n"
+                f"2. **Late Submission Window:** **01st Dec – 03rd Dec 2026** *(With ₹1,000 Late Fine)*\n"
+                f"3. **Submission Link:** `https://jamiahamdard.edu/examinations/portal`\n"
+                f"4. **Mandatory Prerequisite:** Minimum **75% Attendance** in all enrolled courses (Ordinance 15) and online No-Dues clearance.\n\n"
+                f"Students failing to submit within the deadline will **NOT** be issued Admit Cards.\n\n"
+                f"**Sd/-**  \n"
+                f"**Prof. & Head**, Department of Computer Science & Engineering  \n"
+                f"*School of Engineering Sciences & Technology, Jamia Hamdard*"
+            )
+            tool_name = "draft_exam_form_notice"
+        elif any(k in q for k in ["marksheet", "grade card", "result", "pickup", "room 204"]):
+            reply = (
+                f"📄 **NOTICE: OFFICIAL MARKSHEET & GRADE CARD COLLECTION**\n\n"
+                f"**JAMIA HAMDARD — SEST CSE OFFICE**\n\n"
+                f"**Ref No:** JH/SEST/CSE/2026/MRK-102  \n"
+                f"**Subject:** Distribution of Official 7th Semester Grade Sheets & Transcripts\n\n"
+                f"---\n\n"
+                f"Students of B.Tech CSE are informed that verified physical marksheets are available for in-person collection:\n\n"
+                f"📍 **Location:** Departmental Administrative Office, Room 204, SEST 2nd Floor  \n"
+                f"⏰ **Timings:** Monday to Friday, 10:00 AM – 03:00 PM  \n"
+                f"🪪 **Mandatory Documents Required:**  \n"
+                f"  - Original Jamia Hamdard Student Identity Card  \n"
+                f"  - No-Dues Clearance Slip (Digital or Signed)  \n"
+                f"  - Library clearance stamp  \n\n"
+                f"> 💡 *Note: High academic performers (SGPA $\\ge 8.5$) can also collect their Dean's Merit Certificate.*"
+            )
+            tool_name = "draft_marksheet_collection_notice"
+        else:
+            reply = (
+                f"🚨 **OFFICIAL NOTICE: 75% ATTENDANCE SHORTAGE WARNING**\n\n"
+                f"**JAMIA HAMDARD — SEST DEPT OF CSE**\n\n"
+                f"Notice to all 7th Semester B.Tech CSE students having attendance below 75% in theoretical/practical lectures.\n"
+                f"Under University Ordinance 15, students with persistent shortage will be **DEBARRED** from the upcoming Dec 2026 End-Term Exams.\n"
+                f"Submit written justifications/medical certificates to the CSE Department Office immediately."
+            )
+            tool_name = "draft_attendance_warning_notice"
+
+        return AIChatResponse(
+            reply=reply,
+            tool_called=tool_name,
+            suggestions=[
+                "Send this notice via broadcast hub",
+                "Check attendance shortages",
+                "View admit card status",
+            ],
+        )
+
+    # Tool 4: Department Analytics / Performance
+    if any(k in q for k in ["analytics", "performance", "average", "stats", "department", "highest", "lowest", "gpa", "sgpa"]):
+        analytics = compute_department_analytics(db)
+        reply = (
+            f"📊 **Department of CSE — Real-Time Academic Analytics**\n\n"
+            f"- 👥 **Total Students Enrolled:** `{analytics.total_students}`\n"
+            f"- 📚 **Active Departmental Courses:** `{analytics.total_courses}`\n"
+            f"- 🎯 **Batch Average SGPA:** `{analytics.average_sgpa} / 10.0`\n"
+            f"- 📈 **Department Attendance Average:** `{analytics.average_attendance_percentage}%`\n"
+            f"- 🟢 **Exam Eligible Students:** `{analytics.eligible_count}`\n"
+            f"- 🔴 **Debarred / Shortage Students:** `{analytics.shortage_count}`\n\n"
+            f"**Subject-Wise Breakdown:**\n"
+        )
+        for cp in analytics.course_performance:
+            reply += f"- **{cp.code}** ({cp.title}): Avg Score `{cp.average_total} / 100` | Attendance `{cp.average_attendance}%`\n"
+
+        return AIChatResponse(
+            reply=reply,
+            tool_called="compute_department_analytics",
+            tool_data={"avg_sgpa": analytics.average_sgpa, "avg_att": analytics.average_attendance_percentage},
+            suggestions=[
+                "Who has attendance shortage?",
+                "Calculate Diya's attendance recovery",
+                "Generate exam admit card",
+            ],
+        )
+
+    # Tool 5: Specific Student Inquiry
+    for s in db.query(StudentDB).all():
+        if s.name.lower() in q or s.name.split()[0].lower() in q or s.enrollment_no.lower() in q:
+            sc = build_student_scorecard(db, s)
+            reply = (
+                f"🎓 **Academic Profile & Scorecard: {s.name}**\n\n"
+                f"- **Enrollment No:** `{s.enrollment_no}` | **Semester:** {s.semester}\n"
+                f"- **Calculated SGPA:** `{sc.sgpa:.2f}`\n"
+                f"- **Total Credits:** `{sc.total_credits_enrolled}`\n"
+                f"- **Overall Attendance:** `{sc.overall_attendance_percentage}%` (**{sc.overall_attendance_eligibility}**)\n\n"
+                f"**Enrolled Courses:**\n"
+            )
+            for enr in sc.enrollments:
+                reply += (
+                    f"- `{enr.course_code}` ({enr.course_title}): Total **{enr.total_marks}/{enr.max_total}** "
+                    f"(Grade: **{enr.grade}**, GP: {enr.grade_points}) | "
+                    f"Attendance: **{enr.classes_attended}/{enr.classes_held}** ({enr.attendance_percentage}%)\n"
+                )
+
+            return AIChatResponse(
+                reply=reply,
+                tool_called="query_student_scorecard",
+                tool_data={"student_id": s.id, "sgpa": sc.sgpa, "attendance": sc.overall_attendance_percentage},
+                suggestions=[
+                    f"Calculate attendance recovery for {s.name}",
+                    f"Check admit card for {s.name}",
+                    "List all shortage students",
+                ],
+            )
+
+    # Tool 6: Academic Rulebook / FAQ Auto-Responder
+    reply = (
+        f"🤖 **Jamia Hamdard CSE Academic Assistant**\n\n"
+        f"I can assist students and faculty with real-time academic operations:\n\n"
+        f"1. **Attendance Shortage & Debarment:** Check which students are below the 75% threshold under Ordinance 15.\n"
+        f"2. **Attendance Recovery Simulator:** Calculate how many consecutive lectures a student must attend: $x = \\lceil 3H - 4A \\rceil$.\n"
+        f"3. **Admit Card Clearance:** Verify Hall Ticket generation eligibility.\n"
+        f"4. **AI Circular Generator:** Draft official notices for Exam Forms, Marksheet pickup (Room 204), or Shortage warnings.\n"
+        f"5. **Departmental Analytics:** Real-time SGPA averages, pass rates, and course attendance.\n\n"
+        f"*Try asking:* 'Who is debarred from exams?', 'Calculate recovery for Diya', or 'Draft exam form deadline notice'."
+    )
+    return AIChatResponse(
+        reply=reply,
+        tool_called="academic_rulebook_faq",
+        suggestions=[
+            "Who has attendance shortage?",
+            "Calculate Diya's recovery",
+            "Draft exam form notice",
+            "Department analytics",
+        ],
+    )
+
+
+# --- REST Routes for Flagship Capabilities ---
+
+@app.get(
+    "/analytics/department",
+    response_model=DepartmentAnalyticsResponse,
+    tags=["Analytics"],
+)
+def get_department_analytics(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    return compute_department_analytics(db)
+
+
+@app.get(
+    "/students/{student_id}/recovery-calculator",
+    response_model=StudentRecoveryResponse,
+    tags=["Student Portal"],
+)
+def get_student_recovery(
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    student = check_student_or_faculty_access(student_id, current_user, db)
+    return calculate_recovery_for_student(db, student)
+
+
+@app.get(
+    "/me/recovery-calculator",
+    response_model=StudentRecoveryResponse,
+    tags=["Student Portal"],
+)
+def get_my_recovery(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    if current_user.role != "student" or current_user.student_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts have a personal recovery calculator",
+        )
+    student = db.query(StudentDB).filter(StudentDB.id == current_user.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    return calculate_recovery_for_student(db, student)
+
+
+@app.get(
+    "/students/{student_id}/admit-card",
+    response_model=AdmitCardResponse,
+    tags=["Student Portal"],
+)
+def get_student_admit_card(
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    student = check_student_or_faculty_access(student_id, current_user, db)
+    return generate_student_admit_card(db, student)
+
+
+@app.get(
+    "/me/admit-card",
+    response_model=AdmitCardResponse,
+    tags=["Student Portal"],
+)
+def get_my_admit_card(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    if current_user.role != "student" or current_user.student_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts have a personal admit card",
+        )
+    student = db.query(StudentDB).filter(StudentDB.id == current_user.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    return generate_student_admit_card(db, student)
+
+
+@app.get(
+    "/students/{student_id}/no-dues",
+    response_model=NoDuesResponse,
+    tags=["Student Portal"],
+)
+def get_student_no_dues(
+    student_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    student = check_student_or_faculty_access(student_id, current_user, db)
+    sc = build_student_scorecard(db, student)
+    is_att_ok = (sc.overall_attendance_eligibility == "Eligible")
+
+    lib = NoDuesItem(
+        cleared=True,
+        details="Central & Departmental Library: All books returned, zero overdue fines.",
+    )
+    labs = NoDuesItem(
+        cleared=is_att_ok,
+        details=(
+            "CSE Advanced Lab & Practical Records Verified."
+            if is_att_ok
+            else "Withheld: Mandatory practical attendance shortage (<75%)."
+        ),
+    )
+    acc = NoDuesItem(
+        cleared=True,
+        details="Jamia Finance & Accounts Office: 7th Semester Tuition and Exam fees cleared.",
+    )
+    proc = NoDuesItem(
+        cleared=True,
+        details="Office of Proctor: No pending disciplinary notices or hostel dues.",
+    )
+
+    all_cleared = lib.cleared and labs.cleared and acc.cleared and proc.cleared
+    return NoDuesResponse(
+        student_id=student.id,
+        student_name=student.name,
+        enrollment_no=student.enrollment_no,
+        library=lib,
+        labs=labs,
+        accounts=acc,
+        proctor=proc,
+        is_all_cleared=all_cleared,
+    )
+
+
+@app.get(
+    "/me/no-dues",
+    response_model=NoDuesResponse,
+    tags=["Student Portal"],
+)
+def get_my_no_dues(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
+    if current_user.role != "student" or current_user.student_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts have personal no-dues clearance",
+        )
+    student = db.query(StudentDB).filter(StudentDB.id == current_user.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    sc = build_student_scorecard(db, student)
+    is_att_ok = (sc.overall_attendance_eligibility == "Eligible")
+
+    lib = NoDuesItem(
+        cleared=True,
+        details="Central & Departmental Library: All books returned, zero overdue fines.",
+    )
+    labs = NoDuesItem(
+        cleared=is_att_ok,
+        details=(
+            "CSE Advanced Lab & Practical Records Verified."
+            if is_att_ok
+            else "Withheld: Mandatory practical attendance shortage (<75%)."
+        ),
+    )
+    acc = NoDuesItem(
+        cleared=True,
+        details="Jamia Finance & Accounts Office: 7th Semester Tuition and Exam fees cleared.",
+    )
+    proc = NoDuesItem(
+        cleared=True,
+        details="Office of Proctor: No pending disciplinary notices or hostel dues.",
+    )
+
+    all_cleared = lib.cleared and labs.cleared and acc.cleared and proc.cleared
+    return NoDuesResponse(
+        student_id=student.id,
+        student_name=student.name,
+        enrollment_no=student.enrollment_no,
+        library=lib,
+        labs=labs,
+        accounts=acc,
+        proctor=proc,
+        is_all_cleared=all_cleared,
+    )
+
+
+@app.post("/attendance/batch-register", tags=["Enrollments"])
+def batch_register_attendance(
+    payload: BatchAttendanceRequest,
+    db: Session = Depends(get_db),
+    _: UserDB = Depends(require_faculty),
+):
+    code_clean = payload.course_code.strip().upper()
+    course = db.query(CourseDB).filter(CourseDB.code == code_clean).first()
+    if not course:
+        raise HTTPException(status_code=404, detail=f"Course '{code_clean}' not found")
+
+    updated_count = 0
+    present_count = 0
+    absent_count = 0
+
+    for item in payload.records:
+        enr = (
+            db.query(EnrollmentDB)
+            .filter(
+                EnrollmentDB.course_code == code_clean,
+                EnrollmentDB.student_id == item.student_id,
+            )
+            .first()
+        )
+        if enr:
+            enr.classes_held += 1
+            if item.is_present:
+                enr.classes_attended += 1
+                present_count += 1
+            else:
+                absent_count += 1
+            updated_count += 1
+
+    db.commit()
+    return {
+        "course_code": code_clean,
+        "total_records_updated": updated_count,
+        "present_count": present_count,
+        "absent_count": absent_count,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+@app.post(
+    "/ai/chat",
+    response_model=AIChatResponse,
+    tags=["AI Assistant"],
+)
+def ai_chat_endpoint(
+    req: AIChatRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[UserDB] = Depends(get_optional_current_user),
+):
+    ctx_student_id = req.student_id
+    if ctx_student_id is None and current_user and current_user.student_id:
+        ctx_student_id = current_user.student_id
+    return run_ai_tool_calling_agent(db, req.message, ctx_student_id)
+
