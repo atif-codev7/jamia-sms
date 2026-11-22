@@ -4,7 +4,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.32%2B-FF4B4B.svg)](https://streamlit.io/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00.svg)](https://www.sqlalchemy.org/)
-[![Pytest](https://img.shields.io/badge/Pytest-24%2F24%20Passed-brightgreen.svg)](https://pytest.org/)
+[![Pytest](https://img.shields.io/badge/Pytest-26%2F26%20Passed-brightgreen.svg)](https://pytest.org/)
 
 **B.Tech Computer Science & Engineering — 7th Semester (Capstone Project-II: BTCSE 701, 6 Credits)**  
 *Department of Computer Science & Engineering, School of Engineering Sciences & Technology (SEST)*  
@@ -89,6 +89,40 @@ The project includes an automated Pytest test suite (`test_main.py`) verifying a
 | `TC-22` | Batch Attendance Register | Increments held/attended counters atomically | ✅ PASS |
 | `TC-23` | AI Chat Shortage Tool | Dispatches tool call and lists debarred candidates | ✅ PASS |
 | `TC-24` | AI Chat Exam Notice Tool | Formats official Jamia Hamdard circular | ✅ PASS |
+| `TC-25` | WhatsApp Webhook (TwiML) | Returns valid XML for Twilio WhatsApp Network | ✅ PASS |
+| `TC-26` | WhatsApp Webhook (JSON) | Delivers structured reply for phone simulator | ✅ PASS |
+
+---
+
+## 📱 Live WhatsApp AI Chatbot Setup
+
+The system exposes a dual-channel gateway at `POST /webhook/whatsapp` compatible with **Twilio WhatsApp Sandbox** and **Meta Cloud API**.
+
+```
+[Student's Smartphone (WhatsApp)]
+              │
+              ▼
+    [Twilio / Meta Gateway]
+              │ (POST over Internet)
+              ▼
+    [ngrok Public Tunnel: https://xxxx.ngrok-free.app/webhook/whatsapp]
+              │
+              ▼
+    [FastAPI Backend: Port 8000]
+              │
+              ▼
+    [Google Gemini 2.5 Flash + SQLite Academic Database]
+              │
+              ▼
+    [TwiML XML Response Delivered Back to WhatsApp Phone]
+```
+
+### To test from your real smartphone:
+1. Run in terminal: `ngrok http 8000`
+2. In Twilio WhatsApp Sandbox settings, set webhook to: `https://<your-id>.ngrok-free.app/webhook/whatsapp`
+3. Text the Twilio number on WhatsApp (e.g. *"Who has attendance shortage?"* or *"What is Aarav's SGPA?"*)
+4. **Instant Reply:** The AI reads live database rows and replies directly to your phone!
+5. **No Wi-Fi Fallback:** Open **Tab 7 in Streamlit** (`http://localhost:8501`) to use the built-in visual WhatsApp phone simulator.
 
 ---
 

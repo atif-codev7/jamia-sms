@@ -379,6 +379,34 @@ def test_24_ai_chat_exam_notice_tool():
     assert res.status_code == 200
     data = res.json()
     assert data["tool_called"] == "draft_exam_form_notice"
-    assert "JAMIA HAMDARD" in data["reply"]
-    assert "Late Fine" in data["reply"]
+    assert "JAMIA HAMDARD" in data["reply"].upper()
+    assert "LATE" in data["reply"].upper()
+
+
+# TC-25: WhatsApp Webhook returns valid TwiML XML for Twilio
+def test_25_whatsapp_webhook_twiml():
+    res = client.post(
+        "/webhook/whatsapp",
+        data={"Body": "Who is debarred due to attendance shortage?", "From": "whatsapp:+919876543210"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert res.status_code == 200
+    assert "application/xml" in res.headers["content-type"]
+    assert "<Response>" in res.text
+    assert "<Message>" in res.text
+    assert "Diya Patel" in res.text
+
+
+# TC-26: WhatsApp Webhook returns JSON for web chat simulator
+def test_26_whatsapp_webhook_json():
+    res = client.post(
+        "/webhook/whatsapp?format=json",
+        json={"Body": "What is Aarav's SGPA?", "From": "whatsapp:+919876543210"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "delivered"
+    assert "Aarav Sharma" in data["reply"]
+    assert "<Response>" in data["twiml_xml"]
+
 

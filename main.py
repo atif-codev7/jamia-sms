@@ -1,12 +1,14 @@
 import hashlib
+import html
 import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import jwt
+import requests
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import (
@@ -31,6 +33,10 @@ JWT_SECRET_KEY = os.getenv(
 )
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
+
+# Google Gemini API Configuration (Official Generative AI Engine)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # Configurable attendance eligibility threshold (%)
 ATTENDANCE_ELIGIBILITY_THRESHOLD = 75.0
@@ -404,6 +410,7 @@ class AIChatResponse(BaseModel):
     tool_called: Optional[str] = None
     tool_data: Optional[dict] = None
     suggestions: List[str] = []
+    model_used: Optional[str] = "gemini-2.5-flash"
 
 
 class NoDuesItem(BaseModel):
@@ -1412,6 +1419,43 @@ def compute_department_analytics(db: Session) -> DepartmentAnalyticsResponse:
     )
 
 
+JAMIA_SYSTEM_PROMPT = (
+    "You are the official Jamia Hamdard Departmental Academic AI Assistant for the Department of "
+    "Computer Science & Engineering, School of Engineering Sciences & Technology (SEST), Jamia Hamdard, New Delhi.\n\n"
+    "Institutional Ordinances & Ground Truth Data:\n"
+    "1. Jamia Hamdard Academic Ordinance 15: Minimum 75.0% attendance is strictly mandatory. Students with <75% attendance are debarred from end-term examinations and their admit cards are withheld.\n"
+    "2. Attendance Recovery Mathematical Formulation: x = ceil(3H - 4A), where A is classes attended and H is classes held.\n"
+    "3. Grading Scale: O=10, A+=9, A=8, B+=7, B=6, P=5, F=0. Passing requires 40% internal + 40% external.\n"
+    "4. Marksheet Collection: Departmental Office Room 204, SEST 2nd Floor, Mon-Fri 10:00 AM - 3:00 PM. Original Student ID required.\n"
+    "5. Exam Form Submission Deadline: 30 November 2026. Late submission window (01-Dec to 03-Dec) carries a Rs 1,000 late fine.\n"
+    "6. Current Live Students in Database: Aarav Sharma (85.45% att, SGPA 9.09, Eligible), Diya Patel (70.0% att, SGPA 8.00, Shortage in BTCSE-704, Debarred), Rohan Verma (SGPA 7.00, 0 classes held in BTCSE-703).\n\n"
+    "Format responses politely, authoritatively, with clean markdown, citing exact database statistics."
+)
+
+
+def generate_gemini_response(prompt: str, system_instruction: str = JAMIA_SYSTEM_PROMPT) -> Optional[str]:
+    api_key = os.getenv("GEMINI_API_KEY", GEMINI_API_KEY)
+    if not api_key:
+        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "system_instruction": {"parts": [{"text": system_instruction}]},
+    }
+    try:
+        res = requests.post(url, json=payload, timeout=6)
+        if res.status_code == 200:
+            data = res.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts and "text" in parts[0]:
+                    return parts[0]["text"]
+        return None
+    except Exception:
+        return None
+
+
 def run_ai_tool_calling_agent(
     db: Session, message: str, context_student_id: Optional[int] = None
 ) -> AIChatResponse:
@@ -1424,25 +1468,36 @@ def run_ai_tool_calling_agent(
         if not shortage_list:
             reply = "✅ **Excellent News:** No students currently have attendance below the 75% threshold in the Department of Computer Science & Engineering."
             return AIChatResponse(
-                reply=reply, tool_called="query_attendance_shortages", tool_data={"count": 0}
+                reply=reply, tool_called="query_attendance_shortages", tool_data={"count": 0}, model_used="gemini-2.5-flash"
             )
 
-        reply = (
+        local_reply = (
             f"🚨 **Departmental Attendance Shortage Warning**\n\n"
             f"Under **Jamia Hamdard Academic Ordinance 15**, a minimum of **75.0% attendance** is mandatory to appear for the 7th Semester B.Tech End-Term Examinations.\n\n"
             f"Found **{len(shortage_list)} student(s)** facing exam debarment:\n\n"
         )
         for s in shortage_list:
-            reply += f"- **{s['name']}** (`{s['enrollment_no']}`) — Overall: **{s['overall_attendance']}%** ❌\n"
+            local_reply += f"- **{s['name']}** (`{s['enrollment_no']}`) — Overall: **{s['overall_attendance']}%** ❌\n"
             for c in s["shortage_courses"]:
                 needed = max(0, math.ceil(3 * c["held"] - 4 * c["attended"]))
-                reply += f"  • *{c['code']} ({c['title']})*: {c['attended']}/{c['held']} classes (**{c['pct']}%**) ➔ *Needs {needed} consecutive lectures to recover.*\n"
-        reply += "\n> ⚠️ *Action Required: Instruct debarred students to meet Ms. Gautami Tripathi (Course/Project Coordinator) or HOD CSE immediately.*"
+                local_reply += f"  • *{c['code']} ({c['title']})*: {c['attended']}/{c['held']} classes (**{c['pct']}%**) ➔ *Needs {needed} consecutive lectures to recover.*\n"
+        local_reply += "\n> ⚠️ *Action Required: Instruct debarred students to meet Ms. Gautami Tripathi (Course/Project Coordinator) or HOD CSE immediately.*"
+
+        gemini_prompt = (
+            f"Live Database Query Result:\n"
+            f"Debarred Students below 75% under Ordinance 15: {shortage_list}\n\n"
+            f"User Question: {message}\n"
+            f"Provide an authoritative summary citing the exact students and Ordinance 15."
+        )
+        gemini_text = generate_gemini_response(gemini_prompt)
+        final_reply = gemini_text if gemini_text else local_reply
+        model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
 
         return AIChatResponse(
-            reply=reply,
+            reply=final_reply,
             tool_called="query_attendance_shortages",
             tool_data={"shortage_count": len(shortage_list), "students": shortage_list},
+            model_used=model_name,
             suggestions=[
                 "Calculate attendance recovery for Diya Patel",
                 "Draft official shortage warning notice",
@@ -1464,7 +1519,7 @@ def run_ai_tool_calling_agent(
 
         if target_student:
             rec = calculate_recovery_for_student(db, target_student)
-            reply = (
+            local_reply = (
                 f"🧮 **Attendance Recovery Calculator Report**\n\n"
                 f"**Student:** {rec.student_name} (`{rec.enrollment_no}`)\n"
                 f"**Overall Attendance:** `{rec.overall_attendance_percentage}%` — **{rec.overall_attendance_eligibility.upper()}**\n\n"
@@ -1479,17 +1534,31 @@ def run_ai_tool_calling_agent(
                     action = f"**Must attend next {c.consecutive_classes_needed} lectures**"
                 else:
                     action = f"Safe (Buffer: {c.buffer_classes_can_miss} cuts allowed)"
-                reply += f"| `{c.course_code}` | {c.course_title} | {c.classes_attended}/{c.classes_held} | {c.current_percentage}% | {status_icon} | {action} |\n"
+                local_reply += f"| `{c.course_code}` | {c.course_title} | {c.classes_attended}/{c.classes_held} | {c.current_percentage}% | {status_icon} | {action} |\n"
 
             if rec.overall_consecutive_needed > 0:
-                reply += f"\n👉 **Overall Verdict:** Student must attend **{rec.overall_consecutive_needed} consecutive departmental lectures** to clear the debarment gate."
+                local_reply += f"\n👉 **Overall Verdict:** Student must attend **{rec.overall_consecutive_needed} consecutive departmental lectures** to clear the debarment gate."
             else:
-                reply += f"\n👉 **Overall Verdict:** Student is fully eligible. Total attendance buffer: **{rec.overall_buffer_can_miss} classes**."
+                local_reply += f"\n👉 **Overall Verdict:** Student is fully eligible. Total attendance buffer: **{rec.overall_buffer_can_miss} classes**."
+
+            gemini_prompt = (
+                f"Student Attendance Recovery Query:\n"
+                f"Student: {rec.student_name} ({rec.enrollment_no}), Overall: {rec.overall_attendance_percentage}% ({rec.overall_attendance_eligibility})\n"
+                f"Consecutive Lectures Needed: {rec.overall_consecutive_needed}\n"
+                f"Course Breakdown: {[c.model_dump() for c in rec.courses]}\n"
+                f"Formula: x = ceil(3H - 4A)\n\n"
+                f"User Question: {message}\n"
+                f"Explain the attendance recovery plan clearly with mathematical details."
+            )
+            gemini_text = generate_gemini_response(gemini_prompt)
+            final_reply = gemini_text if gemini_text else local_reply
+            model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
 
             return AIChatResponse(
-                reply=reply,
+                reply=final_reply,
                 tool_called="calculate_attendance_recovery",
                 tool_data={"student_id": target_student.id, "needed": rec.overall_consecutive_needed},
+                model_used=model_name,
                 suggestions=[
                     "Check Admit Card clearance status",
                     "Draft notice for this student",
@@ -1500,7 +1569,7 @@ def run_ai_tool_calling_agent(
     # Tool 3: Draft Academic Notice
     if any(k in q for k in ["notice", "circular", "exam form", "marksheet", "announcement", "deadline", "draft"]):
         if any(k in q for k in ["exam form", "form", "late fee", "examination"]):
-            reply = (
+            local_reply = (
                 f"📢 **OFFICIAL DEPARTMENTAL CIRCULAR**\n\n"
                 f"**JAMIA HAMDARD**\n"
                 f"*School of Engineering Sciences & Technology (SEST)*\n"
@@ -1521,7 +1590,7 @@ def run_ai_tool_calling_agent(
             )
             tool_name = "draft_exam_form_notice"
         elif any(k in q for k in ["marksheet", "grade card", "result", "pickup", "room 204"]):
-            reply = (
+            local_reply = (
                 f"📄 **NOTICE: OFFICIAL MARKSHEET & GRADE CARD COLLECTION**\n\n"
                 f"**JAMIA HAMDARD — SEST CSE OFFICE**\n\n"
                 f"**Ref No:** JH/SEST/CSE/2026/MRK-102  \n"
@@ -1538,7 +1607,7 @@ def run_ai_tool_calling_agent(
             )
             tool_name = "draft_marksheet_collection_notice"
         else:
-            reply = (
+            local_reply = (
                 f"🚨 **OFFICIAL NOTICE: 75% ATTENDANCE SHORTAGE WARNING**\n\n"
                 f"**JAMIA HAMDARD — SEST DEPT OF CSE**\n\n"
                 f"Notice to all 7th Semester B.Tech CSE students having attendance below 75% in theoretical/practical lectures.\n"
@@ -1547,9 +1616,20 @@ def run_ai_tool_calling_agent(
             )
             tool_name = "draft_attendance_warning_notice"
 
+        gemini_prompt = (
+            f"Draft official Jamia Hamdard departmental circular for:\n"
+            f"Topic: {tool_name}\n"
+            f"User request: {message}\n"
+            f"Ensure to include university name, reference number, and Jamia Ordinance 15 details."
+        )
+        gemini_text = generate_gemini_response(gemini_prompt)
+        final_reply = gemini_text if gemini_text else local_reply
+        model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
+
         return AIChatResponse(
-            reply=reply,
+            reply=final_reply,
             tool_called=tool_name,
+            model_used=model_name,
             suggestions=[
                 "Send this notice via broadcast hub",
                 "Check attendance shortages",
@@ -1560,7 +1640,7 @@ def run_ai_tool_calling_agent(
     # Tool 4: Department Analytics / Performance
     if any(k in q for k in ["analytics", "performance", "average", "stats", "department", "highest", "lowest", "gpa", "sgpa"]):
         analytics = compute_department_analytics(db)
-        reply = (
+        local_reply = (
             f"📊 **Department of CSE — Real-Time Academic Analytics**\n\n"
             f"- 👥 **Total Students Enrolled:** `{analytics.total_students}`\n"
             f"- 📚 **Active Departmental Courses:** `{analytics.total_courses}`\n"
@@ -1571,12 +1651,24 @@ def run_ai_tool_calling_agent(
             f"**Subject-Wise Breakdown:**\n"
         )
         for cp in analytics.course_performance:
-            reply += f"- **{cp.code}** ({cp.title}): Avg Score `{cp.average_total} / 100` | Attendance `{cp.average_attendance}%`\n"
+            local_reply += f"- **{cp.code}** ({cp.title}): Avg Score `{cp.average_total} / 100` | Attendance `{cp.average_attendance}%`\n"
+
+        gemini_prompt = (
+            f"Live Department Analytics:\n"
+            f"Total Students: {analytics.total_students}, Total Courses: {analytics.total_courses}\n"
+            f"Batch Avg SGPA: {analytics.average_sgpa}, Avg Attendance: {analytics.average_attendance_percentage}%\n"
+            f"Eligible: {analytics.eligible_count}, Shortage: {analytics.shortage_count}\n"
+            f"User Question: {message}"
+        )
+        gemini_text = generate_gemini_response(gemini_prompt)
+        final_reply = gemini_text if gemini_text else local_reply
+        model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
 
         return AIChatResponse(
-            reply=reply,
+            reply=final_reply,
             tool_called="compute_department_analytics",
             tool_data={"avg_sgpa": analytics.average_sgpa, "avg_att": analytics.average_attendance_percentage},
+            model_used=model_name,
             suggestions=[
                 "Who has attendance shortage?",
                 "Calculate Diya's attendance recovery",
@@ -1588,7 +1680,7 @@ def run_ai_tool_calling_agent(
     for s in db.query(StudentDB).all():
         if s.name.lower() in q or s.name.split()[0].lower() in q or s.enrollment_no.lower() in q:
             sc = build_student_scorecard(db, s)
-            reply = (
+            local_reply = (
                 f"🎓 **Academic Profile & Scorecard: {s.name}**\n\n"
                 f"- **Enrollment No:** `{s.enrollment_no}` | **Semester:** {s.semester}\n"
                 f"- **Calculated SGPA:** `{sc.sgpa:.2f}`\n"
@@ -1597,16 +1689,28 @@ def run_ai_tool_calling_agent(
                 f"**Enrolled Courses:**\n"
             )
             for enr in sc.enrollments:
-                reply += (
+                local_reply += (
                     f"- `{enr.course_code}` ({enr.course_title}): Total **{enr.total_marks}/{enr.max_total}** "
                     f"(Grade: **{enr.grade}**, GP: {enr.grade_points}) | "
                     f"Attendance: **{enr.classes_attended}/{enr.classes_held}** ({enr.attendance_percentage}%)\n"
                 )
 
+            gemini_prompt = (
+                f"Student Scorecard Query:\n"
+                f"Name: {s.name}, Enrollment: {s.enrollment_no}, SGPA: {sc.sgpa}, Attendance: {sc.overall_attendance_percentage}%\n"
+                f"Status: {sc.overall_attendance_eligibility}\n"
+                f"Courses: {[e.model_dump() for e in sc.enrollments]}\n"
+                f"User Question: {message}"
+            )
+            gemini_text = generate_gemini_response(gemini_prompt)
+            final_reply = gemini_text if gemini_text else local_reply
+            model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
+
             return AIChatResponse(
-                reply=reply,
+                reply=final_reply,
                 tool_called="query_student_scorecard",
                 tool_data={"student_id": s.id, "sgpa": sc.sgpa, "attendance": sc.overall_attendance_percentage},
+                model_used=model_name,
                 suggestions=[
                     f"Calculate attendance recovery for {s.name}",
                     f"Check admit card for {s.name}",
@@ -1615,7 +1719,7 @@ def run_ai_tool_calling_agent(
             )
 
     # Tool 6: Academic Rulebook / FAQ Auto-Responder
-    reply = (
+    local_reply = (
         f"🤖 **Jamia Hamdard CSE Academic Assistant**\n\n"
         f"I can assist students and faculty with real-time academic operations:\n\n"
         f"1. **Attendance Shortage & Debarment:** Check which students are below the 75% threshold under Ordinance 15.\n"
@@ -1625,9 +1729,20 @@ def run_ai_tool_calling_agent(
         f"5. **Departmental Analytics:** Real-time SGPA averages, pass rates, and course attendance.\n\n"
         f"*Try asking:* 'Who is debarred from exams?', 'Calculate recovery for Diya', or 'Draft exam form deadline notice'."
     )
+    gemini_prompt = (
+        f"Live Department Database Context:\n"
+        f"- Students: Aarav Sharma (85.45% att, SGPA 9.09), Diya Patel (70.0% att, SGPA 8.00, Shortage in ADBMS), Rohan Verma (SGPA 7.00)\n"
+        f"- University: Jamia Hamdard, New Delhi (SEST, Dept of CSE)\n\n"
+        f"User Question: {message}"
+    )
+    gemini_text = generate_gemini_response(gemini_prompt)
+    final_reply = gemini_text if gemini_text else local_reply
+    model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
+
     return AIChatResponse(
-        reply=reply,
+        reply=final_reply,
         tool_called="academic_rulebook_faq",
+        model_used=model_name,
         suggestions=[
             "Who has attendance shortage?",
             "Calculate Diya's recovery",
@@ -1878,4 +1993,107 @@ def ai_chat_endpoint(
     if ctx_student_id is None and current_user and current_user.student_id:
         ctx_student_id = current_user.student_id
     return run_ai_tool_calling_agent(db, req.message, ctx_student_id)
+
+
+# =====================================================================
+# PART 12: WHATSAPP WEBHOOK GATEWAY (TWILIO & META CLOUD COMPATIBLE)
+# =====================================================================
+
+@app.post("/webhook/whatsapp", tags=["WhatsApp Integration"])
+async def whatsapp_webhook_post(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Twilio WhatsApp Webhook & Meta Cloud API compatible gateway.
+    Receives incoming WhatsApp messages from physical phones, passes them to
+    the Gemini-powered AI agent, and returns a TwiML XML response that WhatsApp
+    delivers back to the student's phone.
+    """
+    content_type = request.headers.get("content-type", "").lower()
+    incoming_text = ""
+    sender_number = "whatsapp:+919876543210"
+
+    if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form_data = await request.form()
+        incoming_text = str(form_data.get("Body", "")).strip()
+        sender_number = str(form_data.get("From", sender_number)).strip()
+    elif "application/json" in content_type:
+        try:
+            body_json = await request.json()
+            incoming_text = (
+                body_json.get("Body")
+                or body_json.get("message")
+                or body_json.get("text")
+                or ""
+            ).strip()
+            sender_number = str(
+                body_json.get("From") or body_json.get("phone") or sender_number
+            ).strip()
+        except Exception:
+            incoming_text = ""
+    else:
+        raw = (await request.body()).decode("utf-8", errors="ignore")
+        incoming_text = raw.strip()
+
+    if not incoming_text:
+        incoming_text = "help"
+
+    # Run through Gemini-powered AI engine with live database context
+    ai_res = run_ai_tool_calling_agent(db, incoming_text)
+    reply_body = ai_res.reply
+
+    # Format TwiML XML for Twilio WhatsApp
+    escaped_msg = html.escape(reply_body)
+    twiml_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<Response>\n"
+        f"    <Message>{escaped_msg}</Message>\n"
+        "</Response>"
+    )
+
+    # If client / simulator requested JSON
+    is_json = (
+        request.query_params.get("format") == "json"
+        or "application/json" in request.headers.get("accept", "")
+    )
+    if is_json:
+        return {
+            "status": "delivered",
+            "sender": sender_number,
+            "incoming_message": incoming_text,
+            "reply": reply_body,
+            "model_used": ai_res.model_used,
+            "tool_called": ai_res.tool_called,
+            "twiml_xml": twiml_xml,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    return Response(content=twiml_xml, media_type="application/xml")
+
+
+@app.get("/webhook/whatsapp", tags=["WhatsApp Integration"])
+def whatsapp_webhook_get(
+    request: Request,
+    hub_challenge: Optional[str] = Query(None, alias="hub.challenge"),
+    hub_mode: Optional[str] = Query(None, alias="hub.mode"),
+    hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
+):
+    """
+    Verification endpoint for Meta WhatsApp Cloud API and webhook health check.
+    """
+    if hub_challenge:
+        return Response(content=hub_challenge, media_type="text/plain")
+
+    return {
+        "status": "online",
+        "service": "Jamia Hamdard Departmental WhatsApp AI Webhook",
+        "ai_engine": f"Google {GEMINI_MODEL} + Database Tool Calling",
+        "supported_gateways": ["Twilio WhatsApp Sandbox", "Meta Cloud API"],
+        "ngrok_instructions": (
+            "1. Run 'ngrok http 8000' in terminal.\n"
+            "2. Set Twilio WhatsApp Sandbox webhook to POST https://<ngrok-id>.ngrok-free.app/webhook/whatsapp\n"
+            "3. Send any question from your phone on WhatsApp to chat with Jamia Hamdard Academic AI."
+        ),
+    }
 

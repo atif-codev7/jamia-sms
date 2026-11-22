@@ -1,3 +1,4 @@
+from datetime import datetime
 import math
 import pandas as pd
 import requests
@@ -458,7 +459,7 @@ elif st.session_state.auth["role"] == "student":
 elif st.session_state.auth["role"] == "faculty":
     headers = {"Authorization": f"Bearer {st.session_state.auth['access_token']}"}
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
         [
             "📊 Analytics & Scorecards",
             "👥 Manage Students",
@@ -466,6 +467,7 @@ elif st.session_state.auth["role"] == "faculty":
             "📝 Enrollments & Batch Attendance",
             "📢 AI Notice Broadcast Hub",
             "💬 AI Academic Assistant",
+            "📱 WhatsApp AI Bot & Phone Simulator",
         ]
     )
 
@@ -931,3 +933,156 @@ elif st.session_state.auth["role"] == "faculty":
         for msg in st.session_state.chat_messages:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
+
+    # --- TAB 7: WHATSAPP AI BOT & PHONE SIMULATOR ---
+    with tab7:
+        st.subheader("📱 Official WhatsApp AI Gateway & Smartphone Simulator")
+        st.caption(
+            "Dual-Channel Academic Assistant: Powered by Google Gemini 2.5 Flash + FastAPI Webhook (`POST /webhook/whatsapp`)."
+        )
+
+        col_w1, col_w2 = st.columns([1, 1])
+
+        with col_w1:
+            st.markdown("### 🌐 Connect Your Real Phone (Twilio / ngrok)")
+            st.markdown(
+                """
+                Follow these 3 simple steps to chat with the AI from **your physical WhatsApp on your smartphone**:
+
+                **Step 1: Start a public tunnel**
+                Open a new terminal and run:
+                ```bash
+                ngrok http 8000
+                ```
+                *(Or use Cloudflare: `cloudflared tunnel --url http://localhost:8000`)*
+
+                **Step 2: Copy your public Webhook URL**
+                ```text
+                https://<your-subdomain>.ngrok-free.app/webhook/whatsapp
+                ```
+
+                **Step 3: Paste into Twilio WhatsApp Sandbox**
+                1. Open **Twilio Console > Messaging > Try it out > Send a WhatsApp message**.
+                2. In **Sandbox Settings**, set **WHEN A MESSAGE COMES IN** to `POST` and paste your ngrok URL.
+                3. Send `join <sandbox-code>` from your phone.
+                4. **Done!** Any message you send on WhatsApp will query this local database and reply instantly via Gemini!
+                """
+            )
+            st.info("💡 **Local Endpoint:** `http://127.0.0.1:8000/webhook/whatsapp`")
+
+        with col_w2:
+            st.markdown("### 📲 Live Interactive WhatsApp Phone Simulator")
+            st.caption("Test the exact WhatsApp webhook in real-time right here in your browser:")
+
+            st.write("⚡ **Quick WhatsApp Messages:**")
+            wq1, wq2 = st.columns(2)
+            wa_prompt_val = None
+            if wq1.button("🚨 Who is debarred?", key="wa_q1"):
+                wa_prompt_val = "Who is debarred due to attendance shortage?"
+            if wq2.button("❓ What is Diya's attendance?", key="wa_q2"):
+                wa_prompt_val = "What is Diya Patel's attendance percentage?"
+
+            wq3, wq4 = st.columns(2)
+            if wq3.button("🧮 Diya Recovery Plan", key="wa_q3"):
+                wa_prompt_val = "How many classes does Diya need to reach 75%?"
+            if wq4.button("📝 Exam Form Deadline", key="wa_q4"):
+                wa_prompt_val = "What is the last date to submit the exam form?"
+
+            if "wa_chat_history" not in st.session_state:
+                st.session_state.wa_chat_history = [
+                    {
+                        "sender": "bot",
+                        "text": "👋 *Assalamu Alaikum!* I am the *Jamia Hamdard CSE Academic Assistant* on WhatsApp.\n\nYou can ask me about exam eligibility, attendance recovery, SGPA, or marksheet collection.",
+                        "time": "Just now",
+                    }
+                ]
+
+            with st.form("wa_simulator_form", clear_on_submit=True):
+                phone_sender = st.text_input("Simulated Phone Number", value="+91 98765 43210")
+                wa_input = st.text_input("Type message as student on WhatsApp:", value=wa_prompt_val or "")
+                send_wa = st.form_submit_button("💬 Send to WhatsApp Webhook")
+
+            if send_wa and wa_input:
+                st.session_state.wa_chat_history.append({
+                    "sender": "user",
+                    "text": wa_input,
+                    "time": datetime.now().strftime("%I:%M %p"),
+                })
+
+                try:
+                    wa_res = requests.post(
+                        f"{API_URL}/webhook/whatsapp?format=json",
+                        json={"Body": wa_input, "From": f"whatsapp:{phone_sender}"},
+                    )
+                    if wa_res.status_code == 200:
+                        wa_data = wa_res.json()
+                        st.session_state.wa_chat_history.append({
+                            "sender": "bot",
+                            "text": wa_data["reply"],
+                            "time": datetime.now().strftime("%I:%M %p"),
+                            "model": wa_data.get("model_used", "gemini-2.5-flash"),
+                            "twiml": wa_data.get("twiml_xml", ""),
+                        })
+                    else:
+                        st.session_state.wa_chat_history.append({
+                            "sender": "bot",
+                            "text": "⚠️ WhatsApp Webhook returned error.",
+                            "time": datetime.now().strftime("%I:%M %p"),
+                        })
+                except Exception as e:
+                    st.session_state.wa_chat_history.append({
+                        "sender": "bot",
+                        "text": f"⚠️ Connection error: {e}",
+                        "time": datetime.now().strftime("%I:%M %p"),
+                    })
+
+            # Render phone frame
+            st.markdown(
+                """
+                <div style="background-color: #075E54; color: white; padding: 10px 14px; border-radius: 10px 10px 0 0; display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <span style="font-weight: bold; font-size: 1.05rem;">🏛️ Jamia Hamdard CSE AI</span><br>
+                        <span style="font-size: 0.75rem; color: #b7e4c7;">🟢 Online (Verified Institutional Bot)</span>
+                    </div>
+                    <span style="font-size: 0.8rem; background: #128C7E; padding: 3px 8px; border-radius: 12px;">Gemini 2.5 Flash</span>
+                </div>
+                <div style="background: #E5DDD5; padding: 15px; border-radius: 0 0 10px 10px; max-height: 420px; overflow-y: auto; border: 1px solid #ccc; border-top: none;">
+                """,
+                unsafe_allow_html=True,
+            )
+
+            for m in st.session_state.wa_chat_history:
+                if m["sender"] == "user":
+                    st.markdown(
+                        f"""
+                        <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+                            <div style="background-color: #DCF8C6; color: #303030; padding: 8px 12px; border-radius: 8px 0px 8px 8px; max-width: 80%; font-size: 0.9rem; box-shadow: 0 1px 1px rgba(0,0,0,0.1);">
+                                {m['text']}
+                                <div style="text-align: right; font-size: 0.7rem; color: #7f8c8d; margin-top: 3px;">{m['time']} <span style="color: #34B7F1;">✓✓</span></div>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"""
+                        <div style="display: flex; justify-content: flex-start; margin-bottom: 8px;">
+                            <div style="background-color: #FFFFFF; color: #303030; padding: 8px 12px; border-radius: 0px 8px 8px 8px; max-width: 85%; font-size: 0.9rem; box-shadow: 0 1px 1px rgba(0,0,0,0.1);">
+                                {m['text']}
+                                <div style="text-align: right; font-size: 0.7rem; color: #7f8c8d; margin-top: 3px;">{m['time']}</div>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # Raw TwiML XML Inspector
+            with st.expander("🔍 Inspect Raw Twilio TwiML XML (Sent to WhatsApp Gateway)"):
+                last_bot_msg = next((m for m in reversed(st.session_state.wa_chat_history) if m["sender"] == "bot" and "twiml" in m), None)
+                if last_bot_msg and "twiml" in last_bot_msg:
+                    st.code(last_bot_msg["twiml"], language="xml")
+                else:
+                    st.caption("Send a message above to inspect the live TwiML XML payload.")
