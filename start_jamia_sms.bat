@@ -29,9 +29,9 @@ start "Jamia SMS - 1. FastAPI Backend (Port 8000)" cmd /k "color 0B && "%PY%" -m
 :: Wait 3 seconds
 ping 127.0.0.1 -n 4 >nul
 
-:: 2. Launch Streamlit Frontend on Port 8501 (Streamlit will auto-launch the browser once ready)
+:: 2. Launch Streamlit Frontend on Port 8501
 echo [2/3] Launching Streamlit Web Portal on http://localhost:8501 ...
-start "Jamia SMS - 2. Streamlit Web Portal (Port 8501)" cmd /k "color 0E && "%PY%" -m streamlit run app.py --server.port 8501"
+start "Jamia SMS - 2. Streamlit Web Portal (Port 8501)" cmd /k "color 0E && "%PY%" -m streamlit run app.py --server.port 8501 --browser.gatherUsageStats false"
 
 :: Wait 3 seconds
 ping 127.0.0.1 -n 4 >nul
@@ -40,16 +40,22 @@ ping 127.0.0.1 -n 4 >nul
 echo [3/3] Launching ngrok Public Webhook Tunnel ...
 start "Jamia SMS - 3. ngrok Webhook Tunnel" cmd /k "color 0D && "%NGROK%" http 8000 --url=unstuck-cosigner-roving.ngrok-free.dev"
 
+:: Wait 5 seconds for Streamlit server to be 100% ready, then pop open browser
+echo.
+echo [!] Waiting for Streamlit server to bind port 8501...
+ping 127.0.0.1 -n 6 >nul
+echo [!] Opening Jamia Hamdard Portal in your browser...
+start http://localhost:8501
+
 echo.
 echo =====================================================================
-echo   ALL 3 SERVICES LAUNCHED!
+echo   ALL 3 SERVICES LAUNCHED SUCCESSFULLY!
 echo.
 echo   - Backend Swagger Docs : http://localhost:8000/docs
-echo   - Streamlit Dashboard  : http://localhost:8501 (Loading in browser...)
+echo   - Streamlit Dashboard  : http://localhost:8501 (Opened in browser)
 echo   - Public ngrok URL     : https://unstuck-cosigner-roving.ngrok-free.dev
 echo   - WhatsApp Webhook     : https://unstuck-cosigner-roving.ngrok-free.dev/webhook/whatsapp
 echo.
-echo   (If browser shows "Connection Refused", just click Reload in 5 seconds)
 echo   To STOP all services, run stop_jamia_sms.bat or press Ctrl+C in each window.
 echo =====================================================================
 echo.
