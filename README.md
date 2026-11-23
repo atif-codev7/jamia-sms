@@ -130,6 +130,15 @@ The system exposes a dual-channel gateway at `POST /webhook/whatsapp` compatible
 
 ## 🚀 Quickstart Guide
 
+### ⚡ 1-Click Launch (Windows - Recommended)
+Simply double-click:
+- **`start_jamia_sms.bat`**: Launches FastAPI (8000), Streamlit (8501), and the ngrok tunnel in 3 separate managed windows.
+- **`stop_jamia_sms.bat`**: Safely shuts down all 3 microservices.
+
+---
+
+### Manual Launch
+
 ### 1. Prerequisites
 - Python 3.10 or higher
 - Git
