@@ -89,23 +89,24 @@ The project includes an automated Pytest test suite (`test_main.py`) verifying a
 | `TC-22` | Batch Attendance Register | Increments held/attended counters atomically | ✅ PASS |
 | `TC-23` | AI Chat Shortage Tool | Dispatches tool call and lists debarred candidates | ✅ PASS |
 | `TC-24` | AI Chat Exam Notice Tool | Formats official Jamia Hamdard circular | ✅ PASS |
-| `TC-25` | WhatsApp Webhook (TwiML) | Returns valid XML for Twilio WhatsApp Network | ✅ PASS |
+| `TC-25` | WhatsApp Webhook (XML) | Returns valid XML for mobile gateway fallback | ✅ PASS |
 | `TC-26` | WhatsApp Webhook (JSON) | Delivers structured reply for phone simulator | ✅ PASS |
+| `TC-27` | Meta WhatsApp Cloud API | GET verification challenge & POST payload | ✅ PASS |
 
 ---
 
 ## 📱 Live WhatsApp AI Chatbot Setup
 
-The system exposes a dual-channel gateway at `POST /webhook/whatsapp` compatible with **Twilio WhatsApp Sandbox** and **Meta Cloud API**.
+The system exposes a dual-channel gateway at `POST /webhook/whatsapp` compatible with the **Official Meta WhatsApp Cloud API** and our in-app mobile simulator.
 
 ```
 [Student's Smartphone (WhatsApp)]
               │
               ▼
-    [Twilio / Meta Gateway]
+    [Meta WhatsApp Cloud API Gateway]
               │ (POST over Internet)
               ▼
-    [ngrok Public Tunnel: https://xxxx.ngrok-free.app/webhook/whatsapp]
+    [ngrok Public Tunnel: https://xxxx.ngrok-free.dev/webhook/whatsapp]
               │
               ▼
     [FastAPI Backend: Port 8000]
@@ -114,15 +115,16 @@ The system exposes a dual-channel gateway at `POST /webhook/whatsapp` compatible
     [Google Gemini 2.5 Flash + SQLite Academic Database]
               │
               ▼
-    [TwiML XML Response Delivered Back to WhatsApp Phone]
+    [Meta Graph API Response Delivered Back to WhatsApp Phone]
 ```
 
 ### To test from your real smartphone:
 1. Run in terminal: `ngrok http 8000`
-2. In Twilio WhatsApp Sandbox settings, set webhook to: `https://<your-id>.ngrok-free.app/webhook/whatsapp`
-3. Text the Twilio number on WhatsApp (e.g. *"Who has attendance shortage?"* or *"What is Aarav's SGPA?"*)
-4. **Instant Reply:** The AI reads live database rows and replies directly to your phone!
-5. **No Wi-Fi Fallback:** Open **Tab 7 in Streamlit** (`http://localhost:8501`) to use the built-in visual WhatsApp phone simulator.
+2. In Meta Developer Portal (**WhatsApp ➔ Configuration**), set Callback URL to: `https://<your-id>.ngrok-free.dev/webhook/whatsapp` with Verify Token `jamia_secret_2026`.
+3. Under **Webhook fields**, subscribe to **`messages`**.
+4. Text the Meta number on WhatsApp (`+1 555-145-4689`): e.g. *"Who has attendance shortage?"* or *"What is Aarav's SGPA?"*
+5. **Instant Reply:** The AI reads live database rows and replies directly to your phone!
+6. **No Wi-Fi Fallback:** Open **Tab 7 in Streamlit** (`http://localhost:8501`) to use the built-in visual WhatsApp phone simulator.
 
 ---
 

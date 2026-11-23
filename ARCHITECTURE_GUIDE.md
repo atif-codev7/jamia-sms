@@ -135,7 +135,7 @@ Meta sends the message to your WhatsApp phone number, and your phone chimes with
 
 | File Name | Primary Role | What It Contains |
 | :--- | :--- | :--- |
-| `main.py` | **The Core Backend** | 2,100+ lines of Python. Defines SQLite database schema (SQLAlchemy), JWT auth, 12 Flagship API endpoints, Gemini 2.5 Flash tool-calling agent, and `/webhook/whatsapp` for Twilio & Meta. |
+| `main.py` | **The Core Backend** | 2,100+ lines of Python. Defines SQLite database schema (SQLAlchemy), JWT auth, 12 Flagship API endpoints, Gemini 2.5 Flash tool-calling agent, and `/webhook/whatsapp` for Meta Cloud API & in-app simulator. |
 | `app.py` | **The Frontend Dashboard** | Streamlit UI with 7 tabs: Analytics, Student Portal, Faculty Gradebook, 1-Click Batch Attendance Register, AI Notice Broadcast Hub, AI Assistant Chat, and WhatsApp Phone Simulator. |
 | `test_main.py` | **Automated Test Suite** | 27 automated unit tests (`TC-01` to `TC-27`) covering authentication, RBAC, marks calculation, Ordinance 15 admit card locking, batch roll-call, and Meta Cloud API webhook verification. |
 | `academic_records.db` | **Relational Database** | SQLite database file containing 4 normalized tables: `users`, `students`, `courses`, and `enrollments`. |

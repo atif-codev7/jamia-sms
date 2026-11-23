@@ -1998,7 +1998,7 @@ def ai_chat_endpoint(
 
 
 # =====================================================================
-# PART 12: WHATSAPP WEBHOOK GATEWAY (TWILIO & META CLOUD COMPATIBLE)
+# PART 12: WHATSAPP WEBHOOK GATEWAY (META CLOUD API & MOBILE SIMULATOR)
 # =====================================================================
 
 @app.post("/webhook/whatsapp", tags=["WhatsApp Integration"])
@@ -2008,9 +2008,9 @@ async def whatsapp_webhook_post(
 ):
     """
     Unified WhatsApp Webhook Gateway:
-    - Supports Twilio WhatsApp Sandbox (returns TwiML XML).
     - Supports Meta WhatsApp Cloud API (inbound JSON -> Gemini -> Meta Graph API reply).
     - Supports Streamlit In-App Simulator (format=json).
+    - Supports standard XML markup for mobile gateways.
     """
     content_type = request.headers.get("content-type", "").lower()
     incoming_text = ""
@@ -2068,11 +2068,13 @@ async def whatsapp_webhook_post(
 
     # Handle Meta WhatsApp Cloud API outbound reply
     if is_meta_cloud:
+        load_dotenv(override=True)
         meta_token = os.getenv("META_WHATSAPP_TOKEN") or os.getenv("WHATSAPP_TOKEN")
-        if meta_token and phone_number_id and sender_number:
+        phone_id = phone_number_id or os.getenv("META_PHONE_NUMBER_ID")
+        if meta_token and phone_id and sender_number:
             try:
                 recipient = re.sub(r"\D", "", str(sender_number))
-                graph_url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+                graph_url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
                 headers = {
                     "Authorization": f"Bearer {meta_token}",
                     "Content-Type": "application/json",
@@ -2083,8 +2085,9 @@ async def whatsapp_webhook_post(
                     "type": "text",
                     "text": {"body": reply_body},
                 }
-                async with httpx.AsyncClient(timeout=10.0) as http_client:
-                    await http_client.post(graph_url, headers=headers, json=payload)
+                async with httpx.AsyncClient(timeout=15.0) as http_client:
+                    resp = await http_client.post(graph_url, headers=headers, json=payload)
+                    print(f"[Meta Cloud API] Sent message to {recipient}, status: {resp.status_code}, response: {resp.text}")
             except Exception as e:
                 print(f"[Meta Cloud API Error] Failed to send message: {e}")
 
@@ -2097,7 +2100,7 @@ async def whatsapp_webhook_post(
             "tool_called": ai_res.tool_called,
         }
 
-    # Format TwiML XML for Twilio WhatsApp
+    # Format XML markup for mobile webhook response
     escaped_msg = html.escape(reply_body)
     twiml_xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -2147,7 +2150,7 @@ def whatsapp_webhook_get(
         "status": "online",
         "service": "Jamia Hamdard Departmental WhatsApp AI Webhook",
         "ai_engine": f"Google {GEMINI_MODEL} + Database Tool Calling",
-        "supported_gateways": ["Twilio WhatsApp Sandbox", "Meta WhatsApp Cloud API"],
+        "supported_gateways": ["Meta WhatsApp Cloud API", "Streamlit Mobile Simulator"],
         "meta_verification_token": os.getenv("META_VERIFY_TOKEN", "jamia_secret_2026"),
         "ngrok_webhook_url": "/webhook/whatsapp",
     }

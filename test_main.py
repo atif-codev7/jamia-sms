@@ -383,7 +383,7 @@ def test_24_ai_chat_exam_notice_tool():
     assert "LATE" in data["reply"].upper()
 
 
-# TC-25: WhatsApp Webhook returns valid TwiML XML for Twilio
+# TC-25: WhatsApp Webhook returns valid XML for mobile gateway fallback
 def test_25_whatsapp_webhook_twiml():
     res = client.post(
         "/webhook/whatsapp",

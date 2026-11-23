@@ -745,7 +745,7 @@ def create_report():
     add_h2("9.2 Roadmap for Future Enhancements")
     futes = [
         "Biometric & QR Code Attendance: Integrating classroom IoT devices and dynamic QR codes for instantaneous student check-ins.",
-        "Automated Communication Gateways: Integrating Twilio / WhatsApp APIs to dispatch automated shortage warning notifications to parents and students when attendance falls below 75%.",
+        "Automated Communication Gateways: Integrating Meta WhatsApp Cloud API to dispatch automated shortage warning notifications to parents and students when attendance falls below 75%.",
         "Official Transcript Generation: Implementing ReportLab to generate university-stamped, tamper-evident PDF marks cards with embedded cryptographic verification hashes.",
         "Docker Containerization & Kubernetes: Packaging the application into multi-container Docker images for scalable deployment on Jamia Hamdard's campus cloud infrastructure."
     ]

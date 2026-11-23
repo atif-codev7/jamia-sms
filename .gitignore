@@ -18,10 +18,4 @@ env/
 # VS Code settings
 .vscode/
 
-# WhatsApp Bot
-whatsapp_bot/node_modules/
-whatsapp_bot/.wwebjs_auth/
-whatsapp_bot/.wwebjs_cache/
-whatsapp_bot/qr.png
-
 

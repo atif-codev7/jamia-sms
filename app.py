@@ -944,31 +944,30 @@ elif st.session_state.auth["role"] == "faculty":
         col_w1, col_w2 = st.columns([1, 1])
 
         with col_w1:
-            st.markdown("### 🌐 Connect Your Real Phone (Twilio / ngrok)")
+            st.markdown("### 🌐 Connect Your Real Phone (Meta WhatsApp Cloud API / ngrok)")
             st.markdown(
                 """
                 Follow these 3 simple steps to chat with the AI from **your physical WhatsApp on your smartphone**:
 
-                **Step 1: Start a public tunnel**
-                Open a new terminal and run:
+                **Step 1: Start the public tunnel**
+                Run in terminal:
                 ```bash
                 ngrok http 8000
                 ```
-                *(Or use Cloudflare: `cloudflared tunnel --url http://localhost:8000`)*
 
                 **Step 2: Copy your public Webhook URL**
                 ```text
-                https://<your-subdomain>.ngrok-free.app/webhook/whatsapp
+                https://unstuck-cosigner-roving.ngrok-free.dev/webhook/whatsapp
                 ```
 
-                **Step 3: Paste into Twilio WhatsApp Sandbox**
-                1. Open **Twilio Console > Messaging > Try it out > Send a WhatsApp message**.
-                2. In **Sandbox Settings**, set **WHEN A MESSAGE COMES IN** to `POST` and paste your ngrok URL.
-                3. Send `join <sandbox-code>` from your phone.
-                4. **Done!** Any message you send on WhatsApp will query this local database and reply instantly via Gemini!
+                **Step 3: Connect to Meta WhatsApp Cloud API**
+                1. Open **[developers.facebook.com](https://developers.facebook.com)** ➔ WhatsApp ➔ Configuration.
+                2. Set Callback URL to your ngrok URL and Verify Token to `jamia_secret_2026`.
+                3. Under **Webhook fields**, subscribe to **`messages`**.
+                4. **Done!** Send any academic question from your phone to `+1 (555) 145-4689` and Gemini will reply instantly!
                 """
             )
-            st.info("💡 **Local Endpoint:** `http://127.0.0.1:8000/webhook/whatsapp`")
+            st.info("💡 **Live Webhook Endpoint:** `http://127.0.0.1:8000/webhook/whatsapp`")
 
         with col_w2:
             st.markdown("### 📲 Live Interactive WhatsApp Phone Simulator")
@@ -1079,8 +1078,8 @@ elif st.session_state.auth["role"] == "faculty":
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # Raw TwiML XML Inspector
-            with st.expander("🔍 Inspect Raw Twilio TwiML XML (Sent to WhatsApp Gateway)"):
+            # Raw Webhook XML Inspector
+            with st.expander("🔍 Inspect Raw WhatsApp Gateway Response (XML / JSON)"):
                 last_bot_msg = next((m for m in reversed(st.session_state.wa_chat_history) if m["sender"] == "bot" and "twiml" in m), None)
                 if last_bot_msg and "twiml" in last_bot_msg:
                     st.code(last_bot_msg["twiml"], language="xml")
