@@ -29,9 +29,9 @@ start "Jamia SMS - 1. FastAPI Backend (Port 8000)" cmd /k "color 0B && "%PY%" -m
 :: Wait 3 seconds
 ping 127.0.0.1 -n 4 >nul
 
-:: 2. Launch Streamlit Frontend on Port 8501
+:: 2. Launch Streamlit Frontend on Port 8501 (headless=true prevents Streamlit from opening its own duplicate tab)
 echo [2/3] Launching Streamlit Web Portal on http://localhost:8501 ...
-start "Jamia SMS - 2. Streamlit Web Portal (Port 8501)" cmd /k "color 0E && "%PY%" -m streamlit run app.py --server.port 8501 --browser.gatherUsageStats false"
+start "Jamia SMS - 2. Streamlit Web Portal (Port 8501)" cmd /k "color 0E && "%PY%" -m streamlit run app.py --server.port 8501 --server.headless true --browser.gatherUsageStats false"
 
 :: Wait 3 seconds
 ping 127.0.0.1 -n 4 >nul
@@ -40,10 +40,10 @@ ping 127.0.0.1 -n 4 >nul
 echo [3/3] Launching ngrok Public Webhook Tunnel ...
 start "Jamia SMS - 3. ngrok Webhook Tunnel" cmd /k "color 0D && "%NGROK%" http 8000 --url=unstuck-cosigner-roving.ngrok-free.dev"
 
-:: Wait 5 seconds for Streamlit server to be 100% ready, then pop open browser
+:: Wait 4 seconds for server readiness, then open exactly ONE browser tab
 echo.
 echo [!] Waiting for Streamlit server to bind port 8501...
-ping 127.0.0.1 -n 6 >nul
+ping 127.0.0.1 -n 5 >nul
 echo [!] Opening Jamia Hamdard Portal in your browser...
 start http://localhost:8501
 
