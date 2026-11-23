@@ -2,9 +2,11 @@ import hashlib
 import html
 import math
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+import httpx
 import jwt
 import requests
 from dotenv import load_dotenv
@@ -1637,46 +1639,7 @@ def run_ai_tool_calling_agent(
             ],
         )
 
-    # Tool 4: Department Analytics / Performance
-    if any(k in q for k in ["analytics", "performance", "average", "stats", "department", "highest", "lowest", "gpa", "sgpa"]):
-        analytics = compute_department_analytics(db)
-        local_reply = (
-            f"📊 **Department of CSE — Real-Time Academic Analytics**\n\n"
-            f"- 👥 **Total Students Enrolled:** `{analytics.total_students}`\n"
-            f"- 📚 **Active Departmental Courses:** `{analytics.total_courses}`\n"
-            f"- 🎯 **Batch Average SGPA:** `{analytics.average_sgpa} / 10.0`\n"
-            f"- 📈 **Department Attendance Average:** `{analytics.average_attendance_percentage}%`\n"
-            f"- 🟢 **Exam Eligible Students:** `{analytics.eligible_count}`\n"
-            f"- 🔴 **Debarred / Shortage Students:** `{analytics.shortage_count}`\n\n"
-            f"**Subject-Wise Breakdown:**\n"
-        )
-        for cp in analytics.course_performance:
-            local_reply += f"- **{cp.code}** ({cp.title}): Avg Score `{cp.average_total} / 100` | Attendance `{cp.average_attendance}%`\n"
-
-        gemini_prompt = (
-            f"Live Department Analytics:\n"
-            f"Total Students: {analytics.total_students}, Total Courses: {analytics.total_courses}\n"
-            f"Batch Avg SGPA: {analytics.average_sgpa}, Avg Attendance: {analytics.average_attendance_percentage}%\n"
-            f"Eligible: {analytics.eligible_count}, Shortage: {analytics.shortage_count}\n"
-            f"User Question: {message}"
-        )
-        gemini_text = generate_gemini_response(gemini_prompt)
-        final_reply = gemini_text if gemini_text else local_reply
-        model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
-
-        return AIChatResponse(
-            reply=final_reply,
-            tool_called="compute_department_analytics",
-            tool_data={"avg_sgpa": analytics.average_sgpa, "avg_att": analytics.average_attendance_percentage},
-            model_used=model_name,
-            suggestions=[
-                "Who has attendance shortage?",
-                "Calculate Diya's attendance recovery",
-                "Generate exam admit card",
-            ],
-        )
-
-    # Tool 5: Specific Student Inquiry
+    # Tool 4: Specific Student Inquiry (Checks individual student match first)
     for s in db.query(StudentDB).all():
         if s.name.lower() in q or s.name.split()[0].lower() in q or s.enrollment_no.lower() in q:
             sc = build_student_scorecard(db, s)
@@ -1717,6 +1680,45 @@ def run_ai_tool_calling_agent(
                     "List all shortage students",
                 ],
             )
+
+    # Tool 5: Department Analytics / Performance
+    if any(k in q for k in ["analytics", "performance", "average", "stats", "department", "highest", "lowest", "gpa", "sgpa"]):
+        analytics = compute_department_analytics(db)
+        local_reply = (
+            f"📊 **Department of CSE — Real-Time Academic Analytics**\n\n"
+            f"- 👥 **Total Students Enrolled:** `{analytics.total_students}`\n"
+            f"- 📚 **Active Departmental Courses:** `{analytics.total_courses}`\n"
+            f"- 🎯 **Batch Average SGPA:** `{analytics.average_sgpa} / 10.0`\n"
+            f"- 📈 **Department Attendance Average:** `{analytics.average_attendance_percentage}%`\n"
+            f"- 🟢 **Exam Eligible Students:** `{analytics.eligible_count}`\n"
+            f"- 🔴 **Debarred / Shortage Students:** `{analytics.shortage_count}`\n\n"
+            f"**Subject-Wise Breakdown:**\n"
+        )
+        for cp in analytics.course_performance:
+            local_reply += f"- **{cp.code}** ({cp.title}): Avg Score `{cp.average_total} / 100` | Attendance `{cp.average_attendance}%`\n"
+
+        gemini_prompt = (
+            f"Live Department Analytics:\n"
+            f"Total Students: {analytics.total_students}, Total Courses: {analytics.total_courses}\n"
+            f"Batch Avg SGPA: {analytics.average_sgpa}, Avg Attendance: {analytics.average_attendance_percentage}%\n"
+            f"Eligible: {analytics.eligible_count}, Shortage: {analytics.shortage_count}\n"
+            f"User Question: {message}"
+        )
+        gemini_text = generate_gemini_response(gemini_prompt)
+        final_reply = gemini_text if gemini_text else local_reply
+        model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
+
+        return AIChatResponse(
+            reply=final_reply,
+            tool_called="compute_department_analytics",
+            tool_data={"avg_sgpa": analytics.average_sgpa, "avg_att": analytics.average_attendance_percentage},
+            model_used=model_name,
+            suggestions=[
+                "Who has attendance shortage?",
+                "Calculate Diya's attendance recovery",
+                "Generate exam admit card",
+            ],
+        )
 
     # Tool 6: Academic Rulebook / FAQ Auto-Responder
     local_reply = (
@@ -2005,14 +2007,16 @@ async def whatsapp_webhook_post(
     db: Session = Depends(get_db),
 ):
     """
-    Twilio WhatsApp Webhook & Meta Cloud API compatible gateway.
-    Receives incoming WhatsApp messages from physical phones, passes them to
-    the Gemini-powered AI agent, and returns a TwiML XML response that WhatsApp
-    delivers back to the student's phone.
+    Unified WhatsApp Webhook Gateway:
+    - Supports Twilio WhatsApp Sandbox (returns TwiML XML).
+    - Supports Meta WhatsApp Cloud API (inbound JSON -> Gemini -> Meta Graph API reply).
+    - Supports Streamlit In-App Simulator (format=json).
     """
     content_type = request.headers.get("content-type", "").lower()
     incoming_text = ""
     sender_number = "whatsapp:+919876543210"
+    is_meta_cloud = False
+    phone_number_id = None
 
     if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
         form_data = await request.form()
@@ -2021,15 +2025,31 @@ async def whatsapp_webhook_post(
     elif "application/json" in content_type:
         try:
             body_json = await request.json()
-            incoming_text = (
-                body_json.get("Body")
-                or body_json.get("message")
-                or body_json.get("text")
-                or ""
-            ).strip()
-            sender_number = str(
-                body_json.get("From") or body_json.get("phone") or sender_number
-            ).strip()
+            # 1. Check for Meta WhatsApp Cloud API structure
+            if body_json.get("object") == "whatsapp_business_account" or "entry" in body_json:
+                is_meta_cloud = True
+                entries = body_json.get("entry", [])
+                for entry in entries:
+                    for change in entry.get("changes", []):
+                        val = change.get("value", {})
+                        phone_number_id = val.get("metadata", {}).get("phone_number_id")
+                        messages = val.get("messages", [])
+                        if messages:
+                            msg_obj = messages[0]
+                            sender_number = msg_obj.get("from", sender_number)
+                            if msg_obj.get("type") == "text":
+                                incoming_text = msg_obj.get("text", {}).get("body", "")
+            else:
+                # 2. Simulator or direct JSON payload
+                incoming_text = (
+                    body_json.get("Body")
+                    or body_json.get("message")
+                    or body_json.get("text")
+                    or ""
+                ).strip()
+                sender_number = str(
+                    body_json.get("From") or body_json.get("phone") or sender_number
+                ).strip()
         except Exception:
             incoming_text = ""
     else:
@@ -2037,11 +2057,45 @@ async def whatsapp_webhook_post(
         incoming_text = raw.strip()
 
     if not incoming_text:
+        if is_meta_cloud:
+            # Meta sends delivery receipts / read receipts with no text; return 200 immediately
+            return {"status": "ok", "detail": "receipt acknowledged"}
         incoming_text = "help"
 
     # Run through Gemini-powered AI engine with live database context
     ai_res = run_ai_tool_calling_agent(db, incoming_text)
     reply_body = ai_res.reply
+
+    # Handle Meta WhatsApp Cloud API outbound reply
+    if is_meta_cloud:
+        meta_token = os.getenv("META_WHATSAPP_TOKEN") or os.getenv("WHATSAPP_TOKEN")
+        if meta_token and phone_number_id and sender_number:
+            try:
+                recipient = re.sub(r"\D", "", str(sender_number))
+                graph_url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+                headers = {
+                    "Authorization": f"Bearer {meta_token}",
+                    "Content-Type": "application/json",
+                }
+                payload = {
+                    "messaging_product": "whatsapp",
+                    "to": recipient,
+                    "type": "text",
+                    "text": {"body": reply_body},
+                }
+                async with httpx.AsyncClient(timeout=10.0) as http_client:
+                    await http_client.post(graph_url, headers=headers, json=payload)
+            except Exception as e:
+                print(f"[Meta Cloud API Error] Failed to send message: {e}")
+
+        return {
+            "status": "delivered",
+            "gateway": "meta_cloud_api",
+            "sender": sender_number,
+            "reply": reply_body,
+            "model_used": ai_res.model_used,
+            "tool_called": ai_res.tool_called,
+        }
 
     # Format TwiML XML for Twilio WhatsApp
     escaped_msg = html.escape(reply_body)
@@ -2081,19 +2135,20 @@ def whatsapp_webhook_get(
 ):
     """
     Verification endpoint for Meta WhatsApp Cloud API and webhook health check.
+    Meta sends GET request with hub.challenge, hub.mode=subscribe, hub.verify_token.
     """
     if hub_challenge:
-        return Response(content=hub_challenge, media_type="text/plain")
+        expected_token = os.getenv("META_VERIFY_TOKEN", "jamia_secret_2026")
+        if hub_verify_token and hub_verify_token != expected_token:
+            return Response(content="Verification token mismatch", status_code=403)
+        return Response(content=str(hub_challenge), media_type="text/plain")
 
     return {
         "status": "online",
         "service": "Jamia Hamdard Departmental WhatsApp AI Webhook",
         "ai_engine": f"Google {GEMINI_MODEL} + Database Tool Calling",
-        "supported_gateways": ["Twilio WhatsApp Sandbox", "Meta Cloud API"],
-        "ngrok_instructions": (
-            "1. Run 'ngrok http 8000' in terminal.\n"
-            "2. Set Twilio WhatsApp Sandbox webhook to POST https://<ngrok-id>.ngrok-free.app/webhook/whatsapp\n"
-            "3. Send any question from your phone on WhatsApp to chat with Jamia Hamdard Academic AI."
-        ),
+        "supported_gateways": ["Twilio WhatsApp Sandbox", "Meta WhatsApp Cloud API"],
+        "meta_verification_token": os.getenv("META_VERIFY_TOKEN", "jamia_secret_2026"),
+        "ngrok_webhook_url": "/webhook/whatsapp",
     }
 

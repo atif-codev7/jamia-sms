@@ -410,3 +410,53 @@ def test_26_whatsapp_webhook_json():
     assert "<Response>" in data["twiml_xml"]
 
 
+# TC-27: Meta WhatsApp Cloud API GET verification challenge & POST message
+def test_27_meta_whatsapp_cloud_api():
+    # 1. Test GET challenge verification
+    res_get = client.get(
+        "/webhook/whatsapp?hub.mode=subscribe&hub.challenge=1158201444&hub.verify_token=jamia_secret_2026"
+    )
+    assert res_get.status_code == 200
+    assert res_get.text == "1158201444"
+
+    # 2. Test POST Meta JSON webhook payload
+    meta_payload = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "100654321098765",
+                "changes": [
+                    {
+                        "value": {
+                            "messaging_product": "whatsapp",
+                            "metadata": {
+                                "display_phone_number": "15550253483",
+                                "phone_number_id": "106540352242522",
+                            },
+                            "messages": [
+                                {
+                                    "from": "919334049043",
+                                    "id": "wamid.HBgLM...",
+                                    "timestamp": "1732345678",
+                                    "text": {
+                                        "body": "Who is debarred due to attendance shortage?"
+                                    },
+                                    "type": "text",
+                                }
+                            ],
+                        },
+                        "field": "messages",
+                    }
+                ],
+            }
+        ],
+    }
+    res_post = client.post("/webhook/whatsapp", json=meta_payload)
+    assert res_post.status_code == 200
+    data = res_post.json()
+    assert data["status"] == "delivered"
+    assert data["gateway"] == "meta_cloud_api"
+    assert "Diya" in data["reply"]
+
+
+
