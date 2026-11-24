@@ -1299,18 +1299,18 @@ def generate_student_admit_card(db: Session, student: StudentDB) -> AdmitCardRes
     qr_hash = hashlib.sha256(hash_str.encode("utf-8")).hexdigest()[:20].upper()
 
     if is_eligible:
-        status_text = "ELIGIBLE (Admit Card Cleared)"
-        hall_ticket = f"JH-7SEM-2026-{student.enrollment_no[-3:]}"
-        center = "School of Engineering Sciences & Technology (SEST), Jamia Hamdard, New Delhi"
+        status_text = "ELIGIBLE (Demonstration View — Cleared)"
+        hall_ticket = f"DEMO-7SEM-2026-{student.enrollment_no[-3:]}"
+        center = "School of Engineering Sciences & Technology (SEST), Jamia Hamdard, New Delhi (Demo)"
         debarment = None
     else:
-        status_text = "DEBARRED / WITHHELD (Attendance Shortage)"
+        status_text = "DEBARRED / WITHHELD (Illustrative 75% Attendance Gate)"
         hall_ticket = "WITHHELD-SHORTAGE"
-        center = "N/A (Entry Prohibited Under Ordinance 15)"
+        center = "N/A (Withheld under Illustrative Demo Policy — Ordinance 15)"
         debarment = (
-            f"Admit card withheld under Jamia Hamdard Academic Ordinance 15. "
-            f"Overall attendance is {scorecard.overall_attendance_percentage}% "
-            f"(Minimum 75.0% required). Contact Head of Department (HOD) CSE."
+            f"Demonstration admit card withheld under configured illustrative threshold "
+            f"(Ordinance 15 demo rule: 75.0% minimum). Overall attendance is "
+            f"{scorecard.overall_attendance_percentage}%. Contact course coordinator in live demo."
         )
 
     return AdmitCardResponse(
@@ -1422,16 +1422,14 @@ def compute_department_analytics(db: Session) -> DepartmentAnalyticsResponse:
 
 
 JAMIA_SYSTEM_PROMPT = (
-    "You are the official Jamia Hamdard Departmental Academic AI Assistant for the Department of "
-    "Computer Science & Engineering, School of Engineering Sciences & Technology (SEST), Jamia Hamdard, New Delhi.\n\n"
-    "Institutional Ordinances & Ground Truth Data:\n"
-    "1. Jamia Hamdard Academic Ordinance 15: Minimum 75.0% attendance is strictly mandatory. Students with <75% attendance are debarred from end-term examinations and their admit cards are withheld.\n"
+    "You are the Departmental Academic Query Assistant for a B.Tech CSE 7th Semester prototype "
+    "(School of Engineering Sciences & Technology, Jamia Hamdard, New Delhi).\n\n"
+    "Configured Illustrative Rules & Ground Truth Data (Demonstration Policy):\n"
+    "1. Illustrative Attendance Gate (demo Ordinance 15 placeholder): Minimum 75.0% attendance. Students below 75% are flagged as shortage/debarred in the demo.\n"
     "2. Attendance Recovery Mathematical Formulation: x = ceil(3H - 4A), where A is classes attended and H is classes held.\n"
-    "3. Grading Scale: O=10, A+=9, A=8, B+=7, B=6, P=5, F=0. Passing requires 40% internal + 40% external.\n"
-    "4. Marksheet Collection: Departmental Office Room 204, SEST 2nd Floor, Mon-Fri 10:00 AM - 3:00 PM. Original Student ID required.\n"
-    "5. Exam Form Submission Deadline: 30 November 2026. Late submission window (01-Dec to 03-Dec) carries a Rs 1,000 late fine.\n"
-    "6. Current Live Students in Database: Aarav Sharma (85.45% att, SGPA 9.09, Eligible), Diya Patel (70.0% att, SGPA 8.00, Shortage in BTCSE-704, Debarred), Rohan Verma (SGPA 7.00, 0 classes held in BTCSE-703).\n\n"
-    "Format responses politely, authoritatively, with clean markdown, citing exact database statistics."
+    "3. Illustrative Grading Scale: O=10, A+=9, A=8, B+=7, B=6, P=5, F=0.\n"
+    "4. Demo Circular Parameters: Marksheet pickup placeholder (Room 204), Exam Form deadline placeholder (30 Nov 2026).\n\n"
+    "Format responses clearly and concisely using only the verified database figures provided in the prompt."
 )
 
 
@@ -1459,12 +1457,31 @@ def generate_gemini_response(prompt: str, system_instruction: str = JAMIA_SYSTEM
 
 
 def run_ai_tool_calling_agent(
-    db: Session, message: str, context_student_id: Optional[int] = None
+    db: Session,
+    message: str,
+    context_student_id: Optional[int] = None,
+    caller_role: str = "faculty",
 ) -> AIChatResponse:
     q = message.lower().strip()
+    all_students = db.query(StudentDB).all()
+    named_student = next(
+        (
+            s
+            for s in all_students
+            if s.name.lower() in q
+            or s.name.split()[0].lower() in q
+            or s.enrollment_no.lower() in q
+        ),
+        None,
+    )
 
-    # Tool 1: Attendance Shortage Query
+    # Tool 1: Attendance Shortage Query (Faculty / Demo Webhook only)
     if any(k in q for k in ["shortage", "debarred", "below 75", "< 75", "detained", "ineligible", "low attendance"]):
+        if caller_role == "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Department-wide attendance shortage lists are restricted to faculty accounts",
+            )
         analytics = compute_department_analytics(db)
         shortage_list = analytics.shortage_students
         if not shortage_list:
@@ -1475,21 +1492,21 @@ def run_ai_tool_calling_agent(
 
         local_reply = (
             f"🚨 **Departmental Attendance Shortage Warning**\n\n"
-            f"Under **Jamia Hamdard Academic Ordinance 15**, a minimum of **75.0% attendance** is mandatory to appear for the 7th Semester B.Tech End-Term Examinations.\n\n"
-            f"Found **{len(shortage_list)} student(s)** facing exam debarment:\n\n"
+            f"Under the configured illustrative threshold (**75.0% minimum**; demo Ordinance 15 rule), "
+            f"the following student(s) are flagged for attendance shortage:\n\n"
         )
         for s in shortage_list:
             local_reply += f"- **{s['name']}** (`{s['enrollment_no']}`) — Overall: **{s['overall_attendance']}%** ❌\n"
             for c in s["shortage_courses"]:
                 needed = max(0, math.ceil(3 * c["held"] - 4 * c["attended"]))
                 local_reply += f"  • *{c['code']} ({c['title']})*: {c['attended']}/{c['held']} classes (**{c['pct']}%**) ➔ *Needs {needed} consecutive lectures to recover.*\n"
-        local_reply += "\n> ⚠️ *Action Required: Instruct debarred students to meet Ms. Gautami Tripathi (Course/Project Coordinator) or HOD CSE immediately.*"
+        local_reply += "\n> ⚠️ *Illustrative Demo Policy: Flagged students would report to the course coordinator.*"
 
         gemini_prompt = (
             f"Live Database Query Result:\n"
-            f"Debarred Students below 75% under Ordinance 15: {shortage_list}\n\n"
+            f"Students below 75% under illustrative Ordinance 15 demo rule: {shortage_list}\n\n"
             f"User Question: {message}\n"
-            f"Provide an authoritative summary citing the exact students and Ordinance 15."
+            f"Provide a clear summary citing the exact students and the configured 75% (Ordinance 15 demo) threshold."
         )
         gemini_text = generate_gemini_response(gemini_prompt)
         final_reply = gemini_text if gemini_text else local_reply
@@ -1509,15 +1526,23 @@ def run_ai_tool_calling_agent(
 
     # Tool 2: Attendance Recovery Calculator
     if any(k in q for k in ["recovery", "what if", "how many classes", "consecutive", "can miss", "miss classes", "buffer", "reach 75"]):
-        target_student = None
-        for s in db.query(StudentDB).all():
-            if s.name.lower() in q or s.name.split()[0].lower() in q or s.enrollment_no.lower() in q:
-                target_student = s
-                break
-        if not target_student and context_student_id:
-            target_student = db.query(StudentDB).filter(StudentDB.id == context_student_id).first()
-        if not target_student:
-            target_student = db.query(StudentDB).filter(StudentDB.name.like("%Diya%")).first()
+        if caller_role == "student":
+            if named_student and named_student.id != context_student_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Students may only calculate attendance recovery for their own record",
+                )
+            target_student = (
+                db.query(StudentDB).filter(StudentDB.id == context_student_id).first()
+                if context_student_id
+                else None
+            )
+        else:
+            target_student = named_student
+            if not target_student and context_student_id:
+                target_student = db.query(StudentDB).filter(StudentDB.id == context_student_id).first()
+            if not target_student:
+                target_student = db.query(StudentDB).filter(StudentDB.name.like("%Diya%")).first()
 
         if target_student:
             rec = calculate_recovery_for_student(db, target_student)
@@ -1568,61 +1593,59 @@ def run_ai_tool_calling_agent(
                 ],
             )
 
-    # Tool 3: Draft Academic Notice
+    # Tool 3: Draft Academic Notice (Faculty / Demo Webhook only)
     if any(k in q for k in ["notice", "circular", "exam form", "marksheet", "announcement", "deadline", "draft"]):
+        if caller_role == "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Drafting departmental circulars is restricted to faculty accounts",
+            )
         if any(k in q for k in ["exam form", "form", "late fee", "examination"]):
             local_reply = (
-                f"📢 **OFFICIAL DEPARTMENTAL CIRCULAR**\n\n"
+                f"📢 **SAMPLE DEPARTMENTAL CIRCULAR (DEMO TEMPLATE)**\n\n"
                 f"**JAMIA HAMDARD**\n"
                 f"*School of Engineering Sciences & Technology (SEST)*\n"
                 f"**Department of Computer Science & Engineering**\n\n"
-                f"**Ref No:** JH/SEST/CSE/2026/NOT-884  \n"
+                f"**Demo Ref No:** DEMO/CSE/2026/NOT-884  \n"
                 f"**Date:** {datetime.now().strftime('%d %B %Y')}  \n"
-                f"**Subject:** Urgent: Submission of End-Term Examination Form (7th Semester B.Tech CSE)\n\n"
+                f"**Subject:** Sample Notice: End-Term Examination Form Window (Illustrative)\n\n"
                 f"---\n\n"
-                f"All registered students of B.Tech CSE 7th Semester are hereby notified that the university portal is open for **End-Term Examination Form Submission**.\n\n"
-                f"1. **Last Date without Late Fee:** **30th November 2026 (5:00 PM)**\n"
-                f"2. **Late Submission Window:** **01st Dec – 03rd Dec 2026** *(With ₹1,000 Late Fine)*\n"
-                f"3. **Submission Link:** `https://jamiahamdard.edu/examinations/portal`\n"
-                f"4. **Mandatory Prerequisite:** Minimum **75% Attendance** in all enrolled courses (Ordinance 15) and online No-Dues clearance.\n\n"
-                f"Students failing to submit within the deadline will **NOT** be issued Admit Cards.\n\n"
-                f"**Sd/-**  \n"
-                f"**Prof. & Head**, Department of Computer Science & Engineering  \n"
-                f"*School of Engineering Sciences & Technology, Jamia Hamdard*"
+                f"Illustrative notice template for **End-Term Examination Form Submission**.\n\n"
+                f"1. **Sample Deadline without Late Fee:** **30th November 2026 (5:00 PM)**\n"
+                f"2. **Sample Late Submission Window:** **01st Dec – 03rd Dec 2026** *(Illustrative ₹1,000 Late Fine)*\n"
+                f"3. **Configured Prerequisite:** Minimum **75% Attendance** (illustrative demo threshold) and clearance view.\n\n"
+                f"> *Note: Placeholder circular text generated for academic software demonstration.*"
             )
             tool_name = "draft_exam_form_notice"
         elif any(k in q for k in ["marksheet", "grade card", "result", "pickup", "room 204"]):
             local_reply = (
-                f"📄 **NOTICE: OFFICIAL MARKSHEET & GRADE CARD COLLECTION**\n\n"
+                f"📄 **SAMPLE NOTICE: MARKSHEET COLLECTION (DEMO TEMPLATE)**\n\n"
                 f"**JAMIA HAMDARD — SEST CSE OFFICE**\n\n"
-                f"**Ref No:** JH/SEST/CSE/2026/MRK-102  \n"
-                f"**Subject:** Distribution of Official 7th Semester Grade Sheets & Transcripts\n\n"
+                f"**Demo Ref No:** DEMO/CSE/2026/MRK-102  \n"
+                f"**Subject:** Illustrative Distribution Notice for Semester Grade Sheets\n\n"
                 f"---\n\n"
-                f"Students of B.Tech CSE are informed that verified physical marksheets are available for in-person collection:\n\n"
-                f"📍 **Location:** Departmental Administrative Office, Room 204, SEST 2nd Floor  \n"
-                f"⏰ **Timings:** Monday to Friday, 10:00 AM – 03:00 PM  \n"
-                f"🪪 **Mandatory Documents Required:**  \n"
-                f"  - Original Jamia Hamdard Student Identity Card  \n"
-                f"  - No-Dues Clearance Slip (Digital or Signed)  \n"
-                f"  - Library clearance stamp  \n\n"
-                f"> 💡 *Note: High academic performers (SGPA $\\ge 8.5$) can also collect their Dean's Merit Certificate.*"
+                f"Illustrative placeholder notice for physical marksheet collection:\n\n"
+                f"📍 **Sample Location:** Departmental Office (Placeholder), SEST  \n"
+                f"⏰ **Sample Timings:** Monday to Friday, 10:00 AM – 03:00 PM  \n"
+                f"🪪 **Placeholder Checklist:** Student ID Card & Clearance Slip\n\n"
+                f"> *Note: Placeholder circular text generated for academic software demonstration.*"
             )
             tool_name = "draft_marksheet_collection_notice"
         else:
             local_reply = (
-                f"🚨 **OFFICIAL NOTICE: 75% ATTENDANCE SHORTAGE WARNING**\n\n"
+                f"🚨 **SAMPLE NOTICE: 75% ATTENDANCE SHORTAGE WARNING (DEMO TEMPLATE)**\n\n"
                 f"**JAMIA HAMDARD — SEST DEPT OF CSE**\n\n"
-                f"Notice to all 7th Semester B.Tech CSE students having attendance below 75% in theoretical/practical lectures.\n"
-                f"Under University Ordinance 15, students with persistent shortage will be **DEBARRED** from the upcoming Dec 2026 End-Term Exams.\n"
-                f"Submit written justifications/medical certificates to the CSE Department Office immediately."
+                f"Illustrative warning template for students below the configured 75% attendance threshold "
+                f"(demonstration Ordinance 15 rule).\n\n"
+                f"> *Note: Placeholder circular text generated for academic software demonstration.*"
             )
             tool_name = "draft_attendance_warning_notice"
 
         gemini_prompt = (
-            f"Draft official Jamia Hamdard departmental circular for:\n"
+            f"Draft an illustrative sample departmental circular template for:\n"
             f"Topic: {tool_name}\n"
             f"User request: {message}\n"
-            f"Ensure to include university name, reference number, and Jamia Ordinance 15 details."
+            f"Label it clearly as an illustrative demonstration template mentioning Jamia Hamdard and the configured 75% (demo Ordinance 15) threshold."
         )
         gemini_text = generate_gemini_response(gemini_prompt)
         final_reply = gemini_text if gemini_text else local_reply
@@ -1639,50 +1662,76 @@ def run_ai_tool_calling_agent(
             ],
         )
 
-    # Tool 4: Specific Student Inquiry (Checks individual student match first)
-    for s in db.query(StudentDB).all():
-        if s.name.lower() in q or s.name.split()[0].lower() in q or s.enrollment_no.lower() in q:
-            sc = build_student_scorecard(db, s)
-            local_reply = (
-                f"🎓 **Academic Profile & Scorecard: {s.name}**\n\n"
-                f"- **Enrollment No:** `{s.enrollment_no}` | **Semester:** {s.semester}\n"
-                f"- **Calculated SGPA:** `{sc.sgpa:.2f}`\n"
-                f"- **Total Credits:** `{sc.total_credits_enrolled}`\n"
-                f"- **Overall Attendance:** `{sc.overall_attendance_percentage}%` (**{sc.overall_attendance_eligibility}**)\n\n"
-                f"**Enrolled Courses:**\n"
-            )
-            for enr in sc.enrollments:
-                local_reply += (
-                    f"- `{enr.course_code}` ({enr.course_title}): Total **{enr.total_marks}/{enr.max_total}** "
-                    f"(Grade: **{enr.grade}**, GP: {enr.grade_points}) | "
-                    f"Attendance: **{enr.classes_attended}/{enr.classes_held}** ({enr.attendance_percentage}%)\n"
-                )
+    # Tool 4: Specific Student Inquiry (Name/enrollment match or authenticated student self-query)
+    personal_scorecard_query = any(
+        k in q for k in ["my marks", "my scorecard", "my grades", "my sgpa", "my result", "my attendance"]
+    )
+    if caller_role == "student" and named_student and named_student.id != context_student_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Students may only access their own academic scorecard",
+        )
 
-            gemini_prompt = (
-                f"Student Scorecard Query:\n"
-                f"Name: {s.name}, Enrollment: {s.enrollment_no}, SGPA: {sc.sgpa}, Attendance: {sc.overall_attendance_percentage}%\n"
-                f"Status: {sc.overall_attendance_eligibility}\n"
-                f"Courses: {[e.model_dump() for e in sc.enrollments]}\n"
-                f"User Question: {message}"
-            )
-            gemini_text = generate_gemini_response(gemini_prompt)
-            final_reply = gemini_text if gemini_text else local_reply
-            model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
+    target_scorecard_student = named_student
+    if not target_scorecard_student and personal_scorecard_query and context_student_id:
+        target_scorecard_student = (
+            db.query(StudentDB).filter(StudentDB.id == context_student_id).first()
+        )
 
-            return AIChatResponse(
-                reply=final_reply,
-                tool_called="query_student_scorecard",
-                tool_data={"student_id": s.id, "sgpa": sc.sgpa, "attendance": sc.overall_attendance_percentage},
-                model_used=model_name,
-                suggestions=[
-                    f"Calculate attendance recovery for {s.name}",
-                    f"Check admit card for {s.name}",
-                    "List all shortage students",
-                ],
+    if target_scorecard_student:
+        s = target_scorecard_student
+        sc = build_student_scorecard(db, s)
+        local_reply = (
+            f"🎓 **Academic Profile & Scorecard: {s.name}**\n\n"
+            f"- **Enrollment No:** `{s.enrollment_no}` | **Semester:** {s.semester}\n"
+            f"- **Calculated SGPA:** `{sc.sgpa:.2f}`\n"
+            f"- **Total Credits:** `{sc.total_credits_enrolled}`\n"
+            f"- **Overall Attendance:** `{sc.overall_attendance_percentage}%` (**{sc.overall_attendance_eligibility}**)\n\n"
+            f"**Enrolled Courses:**\n"
+        )
+        for enr in sc.enrollments:
+            local_reply += (
+                f"- `{enr.course_code}` ({enr.course_title}): Total **{enr.total_marks}/{enr.max_total}** "
+                f"(Grade: **{enr.grade}**, GP: {enr.grade_points}) | "
+                f"Attendance: **{enr.classes_attended}/{enr.classes_held}** ({enr.attendance_percentage}%)\n"
             )
 
-    # Tool 5: Department Analytics / Performance
+        gemini_prompt = (
+            f"Student Scorecard Query:\n"
+            f"Name: {s.name}, Enrollment: {s.enrollment_no}, SGPA: {sc.sgpa}, Attendance: {sc.overall_attendance_percentage}%\n"
+            f"Status: {sc.overall_attendance_eligibility}\n"
+            f"Courses: {[e.model_dump() for e in sc.enrollments]}\n"
+            f"User Question: {message}"
+        )
+        gemini_text = generate_gemini_response(gemini_prompt)
+        final_reply = gemini_text if gemini_text else local_reply
+        model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
+
+        suggestions = (
+            ["Calculate my attendance recovery", "Show my marks and SGPA", "View illustrative academic rules"]
+            if caller_role == "student"
+            else [
+                f"Calculate attendance recovery for {s.name}",
+                f"Check admit card for {s.name}",
+                "List all shortage students",
+            ]
+        )
+
+        return AIChatResponse(
+            reply=final_reply,
+            tool_called="query_student_scorecard",
+            tool_data={"student_id": s.id, "sgpa": sc.sgpa, "attendance": sc.overall_attendance_percentage},
+            model_used=model_name,
+            suggestions=suggestions,
+        )
+
+    # Tool 5: Department Analytics / Performance (Faculty / Demo Webhook only)
     if any(k in q for k in ["analytics", "performance", "average", "stats", "department", "highest", "lowest", "gpa", "sgpa"]):
+        if caller_role == "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Department-wide analytics are restricted to faculty accounts",
+            )
         analytics = compute_department_analytics(db)
         local_reply = (
             f"📊 **Department of CSE — Real-Time Academic Analytics**\n\n"
@@ -1722,35 +1771,48 @@ def run_ai_tool_calling_agent(
 
     # Tool 6: Academic Rulebook / FAQ Auto-Responder
     local_reply = (
-        f"🤖 **Jamia Hamdard CSE Academic Assistant**\n\n"
-        f"I can assist students and faculty with real-time academic operations:\n\n"
-        f"1. **Attendance Shortage & Debarment:** Check which students are below the 75% threshold under Ordinance 15.\n"
-        f"2. **Attendance Recovery Simulator:** Calculate how many consecutive lectures a student must attend: $x = \\lceil 3H - 4A \\rceil$.\n"
-        f"3. **Admit Card Clearance:** Verify Hall Ticket generation eligibility.\n"
-        f"4. **AI Circular Generator:** Draft official notices for Exam Forms, Marksheet pickup (Room 204), or Shortage warnings.\n"
-        f"5. **Departmental Analytics:** Real-time SGPA averages, pass rates, and course attendance.\n\n"
-        f"*Try asking:* 'Who is debarred from exams?', 'Calculate recovery for Diya', or 'Draft exam form deadline notice'."
+        f"🤖 **Departmental Academic Query Assistant**\n\n"
+        f"I can help answer configured academic policy questions and query permitted records:\n\n"
+        f"1. **Personal Scorecard & SGPA:** Ask `'Show my marks'` or `'Show my scorecard'` (students) or query by student name (faculty).\n"
+        f"2. **Attendance Recovery Calculator:** Calculate consecutive lectures needed to meet the illustrative 75% threshold: $x = \\lceil 3H - 4A \\rceil$.\n"
+        f"3. **Illustrative Grading & Demo Rules:** View configured 10-point grade scale and demonstration eligibility criteria."
     )
-    gemini_prompt = (
-        f"Live Department Database Context:\n"
-        f"- Students: Aarav Sharma (85.45% att, SGPA 9.09), Diya Patel (70.0% att, SGPA 8.00, Shortage in ADBMS), Rohan Verma (SGPA 7.00)\n"
-        f"- University: Jamia Hamdard, New Delhi (SEST, Dept of CSE)\n\n"
-        f"User Question: {message}"
-    )
+    if caller_role == "student":
+        gemini_prompt = (
+            f"Illustrative Rules Context (Demo Prototype — Do NOT cite any other students' records):\n"
+            f"- Configured Attendance Threshold: 75.0% (illustrative demo rule)\n"
+            f"- Recovery Formula: x = ceil(3H - 4A)\n"
+            f"- Grade Scale: O=10 (>=90), A+=9 (>=80), A=8 (>=70), B+=7 (>=60), B=6 (>=50), P=5 (>=40), F=0 (<40)\n\n"
+            f"User Question: {message}"
+        )
+    else:
+        gemini_prompt = (
+            f"Illustrative Rules Context (Demo Prototype):\n"
+            f"- Configured Attendance Threshold: 75.0% (illustrative demo rule)\n"
+            f"- Recovery Formula: x = ceil(3H - 4A)\n"
+            f"- Grade Scale: O=10 (>=90), A+=9 (>=80), A=8 (>=70), B+=7 (>=60), B=6 (>=50), P=5 (>=40), F=0 (<40)\n\n"
+            f"User Question: {message}"
+        )
     gemini_text = generate_gemini_response(gemini_prompt)
     final_reply = gemini_text if gemini_text else local_reply
     model_name = "gemini-2.5-flash" if gemini_text else "local-rules-engine"
+
+    faq_suggestions = (
+        ["Show my marks and SGPA", "Calculate my attendance recovery", "What is the illustrative grading scale?"]
+        if caller_role == "student"
+        else [
+            "Who has attendance shortage?",
+            "Calculate Diya's recovery",
+            "Draft exam form notice",
+            "Department analytics",
+        ]
+    )
 
     return AIChatResponse(
         reply=final_reply,
         tool_called="academic_rulebook_faq",
         model_used=model_name,
-        suggestions=[
-            "Who has attendance shortage?",
-            "Calculate Diya's recovery",
-            "Draft exam form notice",
-            "Department analytics",
-        ],
+        suggestions=faq_suggestions,
     )
 
 
@@ -1763,7 +1825,7 @@ def run_ai_tool_calling_agent(
 )
 def get_department_analytics(
     db: Session = Depends(get_db),
-    current_user: UserDB = Depends(get_current_user),
+    _: UserDB = Depends(require_faculty),
 ):
     return compute_department_analytics(db)
 
@@ -1989,12 +2051,14 @@ def batch_register_attendance(
 def ai_chat_endpoint(
     req: AIChatRequest,
     db: Session = Depends(get_db),
-    current_user: Optional[UserDB] = Depends(get_optional_current_user),
+    current_user: UserDB = Depends(get_current_user),
 ):
-    ctx_student_id = req.student_id
-    if ctx_student_id is None and current_user and current_user.student_id:
-        ctx_student_id = current_user.student_id
-    return run_ai_tool_calling_agent(db, req.message, ctx_student_id)
+    ctx_student_id = (
+        current_user.student_id if current_user.role == "student" else req.student_id
+    )
+    return run_ai_tool_calling_agent(
+        db, req.message, ctx_student_id, caller_role=current_user.role
+    )
 
 
 # =====================================================================

@@ -363,9 +363,14 @@ def test_22_batch_attendance_register():
     assert data["absent_count"] == 1
 
 
-# TC-23: AI Chat assistant answers shortage queries via tool calling
+# TC-23: AI Chat assistant answers shortage queries via authenticated faculty access
 def test_23_ai_chat_shortage_tool():
-    res = client.post("/ai/chat", json={"message": "Who is debarred due to attendance shortage?"})
+    headers = get_auth_headers("faculty", "faculty123")
+    res = client.post(
+        "/ai/chat",
+        headers=headers,
+        json={"message": "Who is debarred due to attendance shortage?"},
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["tool_called"] == "query_attendance_shortages"
@@ -373,9 +378,14 @@ def test_23_ai_chat_shortage_tool():
     assert "Ordinance 15" in data["reply"]
 
 
-# TC-24: AI Chat assistant drafts official exam form notice
+# TC-24: AI Chat assistant drafts illustrative exam form notice (faculty access)
 def test_24_ai_chat_exam_notice_tool():
-    res = client.post("/ai/chat", json={"message": "Draft exam form submission deadline notice"})
+    headers = get_auth_headers("faculty", "faculty123")
+    res = client.post(
+        "/ai/chat",
+        headers=headers,
+        json={"message": "Draft exam form submission deadline notice"},
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["tool_called"] == "draft_exam_form_notice"
@@ -457,6 +467,46 @@ def test_27_meta_whatsapp_cloud_api():
     assert data["status"] == "delivered"
     assert data["gateway"] == "meta_cloud_api"
     assert "Diya" in data["reply"]
+
+
+# TC-28: Unauthenticated requests to /ai/chat are rejected
+def test_28_ai_chat_requires_authentication():
+    res = client.post("/ai/chat", json={"message": "Who has attendance shortage?"})
+    assert res.status_code == 401
+
+
+# TC-29: Student cannot query department-wide analytics/shortages or another student via /ai/chat
+def test_29_ai_chat_student_rbac_enforced():
+    headers = get_auth_headers("aarav", "student123")
+
+    res_shortage = client.post(
+        "/ai/chat", headers=headers, json={"message": "Who is debarred due to attendance shortage?"}
+    )
+    assert res_shortage.status_code == 403
+
+    res_other = client.post(
+        "/ai/chat", headers=headers, json={"message": "Show Diya Patel marks and SGPA"}
+    )
+    assert res_other.status_code == 403
+
+    res_dept = client.get("/analytics/department", headers=headers)
+    assert res_dept.status_code == 403
+
+
+# TC-30: Student asking for own marks via /ai/chat retrieves personal scorecard only
+def test_30_ai_chat_student_self_scorecard():
+    headers = get_auth_headers("aarav", "student123")
+    res = client.post(
+        "/ai/chat", headers=headers, json={"message": "Show my marks and SGPA"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["tool_called"] == "query_student_scorecard"
+    assert data["tool_data"]["student_id"] == 1
+    assert data["tool_data"]["sgpa"] == 9.09
+    assert "9.09" in data["reply"]
+    assert "Diya Patel" not in data["reply"]
+
 
 
 

@@ -15,7 +15,9 @@ venv/
 env/
 .venv/
 
-# VS Code settings
+# VS Code settings & assistant state
 .vscode/
+.agents/
+.claude/
 
 

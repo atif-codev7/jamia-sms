@@ -1,4 +1,4 @@
-# DEPARTMENTAL ACADEMIC RECORD, RESULT & ATTENDANCE MANAGEMENT SYSTEM
+# DEPARTMENTAL ACADEMIC RECORD, RESULT, ATTENDANCE & SELF-SERVICE MANAGEMENT SYSTEM
 
 **PROJECT-II REPORT**
 
@@ -10,8 +10,7 @@
 **BACHELOR OF TECHNOLOGY (COMPUTER SCIENCE & ENGINEERING)**
 
 *Under the supervision of*  
-**Ms. Gautami Tripathi**  
-*(Assistant Professor, Department of Computer Science & Engineering)*
+**Ms. Gautami Tripathi**
 
 <div align="center">
   <img src="report_images/jamia_logo.png" width="160" alt="Jamia Hamdard Logo" />
@@ -27,415 +26,213 @@
 
 ## DECLARATION
 
-I, Mr. **Atif Farooqui**, a student of Bachelor of Technology in Computer Science & Engineering (B.Tech CSE), (**Enrollment No: 2023-310-060**) hereby declare that the Project Report entitled **“DEPARTMENTAL ACADEMIC RECORD, RESULT & ATTENDANCE MANAGEMENT SYSTEM”** which is being submitted by me to the Department of Computer Science & Engineering, School of Engineering Sciences & Technology, Jamia Hamdard, New Delhi in partial fulfillment of the requirement for the award of the degree of **Bachelor of Technology (Computer Science & Engineering)**, is my original work and has not been submitted anywhere else for the award of any Degree, Diploma, Associateship, Fellowship, or other similar title or recognition.
+I, Mr. **Atif Farooqui**, a student of Bachelor of Technology (Computer Science & Engineering) (B.Tech CSE), (Enrollment No: 2023-310-060), hereby declare that the Project entitled *"Departmental Academic Record, Result, Attendance & Self-Service Management System"* which is being submitted by me to the Department of Computer Science & Engineering, School of Engineering Sciences & Technology, Jamia Hamdard, New Delhi in partial fulfillment of the requirement for the award of the degree of **Bachelor of Technology (Computer Science & Engineering)**, is my original work and has not been submitted anywhere else for the award of any Degree, Diploma, Associateship, Fellowship or other similar title or recognition.
 
-<br/><br/>
-<div align="right">
-  ____________________________<br/>
-  <b>(Signature of the Applicant)</b><br/>
-  <b>Atif Farooqui</b><br/>
-  Enrollment No: 2023-310-060
-</div>
-
-**Date:** November 14, 2026  
-**Place:** New Delhi  
+____________________________  
+**(Signature and Name of the Applicant)**  
+**Atif Farooqui**  
+**Date:** November 25, 2026  
+**Place:** New Delhi
 
 ---
 
 ## ACKNOWLEDGEMENTS
 
-First and foremost, I express my deepest sense of gratitude and profound reverence to my project supervisor, **Ms. Gautami Tripathi**, Assistant Professor, Department of Computer Science & Engineering, School of Engineering Sciences & Technology, Jamia Hamdard, for her exemplary mentorship, intellectual guidance, continuous encouragement, and meticulous review throughout the conceptualization, architectural design, and implementation of this capstone project.
+I would like to thank my supervisor, **Ms. Gautami Tripathi**, for her guidance and for reviewing this project. I also thank the Department of Computer Science & Engineering, Jamia Hamdard, for the resources and environment that made this work possible.
 
-I also extend my sincere thanks to the Head of the Department, Department of Computer Science & Engineering, and the Dean, School of Engineering Sciences & Technology (SEST), Jamia Hamdard, for providing state-of-the-art computational laboratories, research infrastructure, and an enriching academic environment that enabled the successful completion of this endeavor.
+I used a public FastAPI course (Sheryians AI School) as my learning reference for FastAPI, SQLAlchemy and Pydantic, and I used AI-based coding assistants as a development aid while building, testing and documenting this project. I take responsibility for the design decisions and for the contents of this report.
 
-Special acknowledgement is also due to all the faculty members and technical staff of the Department of Computer Science & Engineering for their valuable pedagogy, constructive suggestions, and insights during departmental seminar reviews and progress presentations. Finally, I am indebted to my parents and colleagues for their constant support, patience, and understanding during the development of this project.
+Finally, I thank my family and friends for their support during the semester.
 
-<br/><br/>
-<div align="right">
-  ____________________________<br/>
-  <b>Atif Farooqui</b><br/>
-  B.Tech (CSE) 7th Semester<br/>
-  Enrollment No: 2023-310-060<br/>
-  Department of Computer Science & Engineering<br/>
-  Jamia Hamdard, New Delhi
-</div>
-
-**Date:** November 14, 2026  
+____________________________  
+**Atif Farooqui**  
+B.Tech (CSE), 7th Semester  
+Enrollment No: 2023-310-060  
+**Date:** November 25, 2026
 
 ---
 
-## LIST OF ABBREVIATIONS
+## 1. TITLE
 
-| Abbreviation | Full Expansion |
+**DEPARTMENTAL ACADEMIC RECORD, RESULT, ATTENDANCE & SELF-SERVICE MANAGEMENT SYSTEM**  
+Project-II (6 credits), B.Tech Computer Science & Engineering, 7th Semester, Jamia Hamdard, New Delhi.  
+Student: Atif Farooqui (Enrollment No: 2023-310-060)  
+Supervisor: Ms. Gautami Tripathi
+
+---
+
+## 2. OBJECTIVE
+
+The objective of this project is to build a web application that lets a department keep students, courses, marks and attendance in one database, gives each user only the access their role allows, and adds a set of self-service views and a query assistant on top of that data. Specifically, the project aims to:
+
+- let faculty add, view, update and delete students, courses, enrollments, marks and attendance, including a batch roll-call operation for a whole course in one request;
+- let a student log in and view only their own marks, grades, attendance and SGPA;
+- enforce access rules in the back end using login tokens and role-based access control (RBAC), not only by hiding screens in the user interface;
+- check every marks and attendance entry and reject invalid values;
+- calculate each course grade, the attendance percentage and the credit-weighted SGPA automatically;
+- provide self-service views: an attendance-recovery calculator, a demonstration exam-eligibility ("admit card") view, and a demonstration clearance ("no-dues") view;
+- provide department-wide analytics for faculty (average SGPA, average attendance, per-course performance, students below the attendance threshold);
+- provide a query assistant, reachable from an authenticated web chat and a WhatsApp-compatible webhook, that answers six fixed categories of questions against the real database; and
+- verify the behaviour of all of the above with automated tests.
+
+---
+
+## 3. INTRODUCTION
+
+In many departments, marks, attendance and enrollment records are kept in spreadsheets or registers. These are easy to start with, but they allow duplicate and inconsistent entries, depend on manual calculation of grades and SGPA, and give no control over who can read or change a student's marks.
+
+This project builds a web application for a department to manage these records in one place. Faculty maintain the records, and students log in to see only their own scorecard. On top of that core, the project adds a small set of self-service views — an attendance-recovery calculator, a demonstration exam-eligibility view, and a demonstration clearance view — and a query assistant that answers six fixed categories of questions about the data in plain language, reachable from an authenticated web chat box and a WhatsApp-compatible webhook.
+
+The back end is a REST API written with FastAPI [1]. Data is stored through the SQLAlchemy ORM [2] in four related tables, and incoming data is validated with Pydantic [3]. The database is a single SQLite file [4]. The user interface is a web application built with Streamlit [5]. The query assistant optionally calls the Gemini API [6] to phrase its answers in natural language; the system remains fully functional without it, using a locally generated reply instead.
+
+The basic FastAPI pattern (routes, Pydantic models and a database session per request) was learned from a public FastAPI course [7]. The four-table schema, authentication, role enforcement, attendance and SGPA logic, self-service views, query assistant and automated tests described in this report were developed for this project.
+
+**A note on the illustrative content in this report.** Several figures used by this project — the 75% attendance threshold, the grade-point scale, and course credit values — are configured assumptions, chosen to resemble common university practice. They are not claimed to be, and have not been verified against, any specific official Jamia Hamdard ordinance, regulation or circular.
+
+---
+
+## 4. PROBLEM STATEMENT
+
+Departments that keep academic records in spreadsheets face the following problems:
+
+- **Data entry errors.** Duplicate rows, inconsistent names and marks above the maximum can go unnoticed, because a spreadsheet does not reject them.
+- **Manual calculation.** Grades and credit-weighted SGPA calculated by hand across courses with different credits are slow and easy to get wrong.
+- **No access control.** Anyone who has the file can read or change marks, and one student's record is not separated from another's.
+- **Scattered self-service.** A student who wants to check their attendance standing, or a staff member who wants a department-wide picture, usually has to ask someone or search the sheet by hand rather than query the system directly.
+
+---
+
+## 5. SOFTWARE REQUIREMENTS SPECIFICATION (SRS)
+
+This SRS follows the structure of IEEE Std 830-1998 [8].
+
+### 5.1 Technology Stack (Table 1)
+
+| Component | Purpose |
 |:---|:---|
-| **API** | Application Programming Interface |
-| **ASGI** | Asynchronous Server Gateway Interface |
-| **BTCSE** | Bachelor of Technology in Computer Science & Engineering |
-| **CRUD** | Create, Read, Update, Delete |
-| **CORS** | Cross-Origin Resource Sharing |
-| **DBMS** | Database Management System |
-| **DED** | Departmental Elective Discipline |
-| **ER / ERD** | Entity-Relationship / Entity-Relationship Diagram |
-| **FK** | Foreign Key |
-| **GUI** | Graphical User Interface |
-| **HMAC** | Hash-based Message Authentication Code |
-| **HTTP / HTTPS** | Hypertext Transfer Protocol / Secure |
-| **IEEE** | Institute of Electrical and Electronics Engineers |
-| **JWT** | JSON Web Token |
-| **NIST** | National Institute of Standards and Technology |
-| **OAS** | OpenAPI Specification |
-| **ORM** | Object Relational Mapping |
-| **PBKDF2** | Password-Based Key Derivation Function 2 |
-| **PK** | Primary Key |
-| **RBAC** | Role-Based Access Control |
-| **REST** | Representational State Transfer |
-| **RDBMS** | Relational Database Management System |
-| **SEST** | School of Engineering Sciences & Technology |
-| **SGPA** | Semester Grade Point Average |
-| **SQL** | Structured Query Language |
-| **SRS** | Software Requirements Specification |
-| **TC** | Test Case |
-| **UI / UX** | User Interface / User Experience |
-| **UML** | Unified Modeling Language |
-| **URL** | Uniform Resource Locator |
-| **UVICORN** | Unicode-friendly Asynchronous Server Gateway Implementation |
+| Python | Programming language for the back end and interface |
+| FastAPI | REST API, request routing, OpenAPI documentation |
+| SQLAlchemy | ORM mapping Python classes to relational tables |
+| Pydantic | Request and boundary validation |
+| SQLite | Single-file relational database |
+| PyJWT | Creating and verifying signed login tokens |
+| Streamlit | Multi-tab web user interface |
+| Gemini API | Optional natural-language rewording of query-assistant answers |
+| Meta WhatsApp Cloud API | Optional WhatsApp channel for the query assistant |
+| pytest | Automated test suite |
+
+### 5.2 Illustrative Grade Scale (Table 2)
+
+| Percentage | Grade | Grade Point | Remark |
+|:---|:---:|:---:|:---|
+| 90 and above | O | 10 | Outstanding |
+| 80 to below 90 | A+ | 9 | Excellent |
+| 70 to below 80 | A | 8 | Very good |
+| 60 to below 70 | B+ | 7 | Good |
+| 50 to below 60 | B | 6 | Above average |
+| 40 to below 50 | P | 5 | Pass |
+| Below 40 | F | 0 | Fail |
+
+### 5.3 Access Control Summary
+All portal endpoints — CRUD, department analytics (`/analytics/department`), self-service views, and the web query assistant (`/ai/chat`) — require a valid JWT bearer token and enforce role-based access control in the API. Faculty can run all operations; students are restricted to their own records, recovery calculator, demonstration views, and student-scoped `/ai/chat` queries. The WhatsApp webhook (`/webhook/whatsapp`) is an unauthenticated demonstration gateway kept open for Meta Cloud API and simulator testing.
 
 ---
 
-## LIST OF TABLES
+## 6. ENTITY RELATIONSHIP DIAGRAM AND DATABASE DESIGN
 
-| Table No. | Caption / Description | Page No. |
-|:---|:---|:---:|
-| **Table 1.1** | Illustrative Grade Scale and Grade Point Equivalencies | 6 |
-| **Table 4.1** | Relational Database Schema: `students` Table Specification | 15 |
-| **Table 4.2** | Relational Database Schema: `users` Authentication Table Specification | 16 |
-| **Table 4.3** | Relational Database Schema: `courses` Curriculum Table Specification | 17 |
-| **Table 4.4** | Relational Database Schema: `enrollments` Academic & Attendance Registry | 18 |
-| **Table 5.1** | Automated Pytest Execution Matrix (TC-01 through TC-15 Verification) | 20 |
+The database uses four relational tables (`students`, `users`, `courses`, `enrollments`):
+- `students` to `users` (`1 : 1`): each student has one login account (`users.student_id` FK).
+- `students` to `enrollments` (`1 : N`): one student can enroll in multiple courses.
+- `courses` to `enrollments` (`1 : N`): one course can have multiple enrolled students, with `UNIQUE (student_id, course_code)`.
 
 ---
 
-## LIST OF FIGURES
+## 7. QUERY ASSISTANT ARCHITECTURE
 
-| Figure No. | Caption / Description | Page No. |
-|:---|:---|:---:|
-| **Figure 4.1** | Entity-Relationship Diagram (Crow's Foot Relational Modeling) | 14 |
-| **Figure 6.1** | Snapshot of System Access & Portal Authentication Interface | 23 |
-| **Figure 6.2** | Snapshot of Faculty Portal: Academic Records & Dynamic Student Inspection | 24 |
-| **Figure 6.3** | Snapshot of Faculty Portal: Student Registry Management (CRUD Operations) | 25 |
-| **Figure 6.4** | Snapshot of Faculty Portal: Curriculum Configuration & Assessment Ceilings | 26 |
-| **Figure 6.5** | Snapshot of Faculty Portal: Enrollment, Marks & Attendance Registry Entry | 27 |
-| **Figure 6.6** | Snapshot of Student Portal: Self-Service Personal Scorecard & Attendance Status | 28 |
-| **Figure 6.7** | Snapshot of Interactive OpenAPI 3.1 / Swagger UI Interface (`/docs`) | 29 |
-| **Figure 6.8** | Snapshot of Machine-Readable OpenAPI 3.1 REST Schema (`/openapi.json`) | 30 |
+The query assistant is a **rule-based (keyword-matched) router with optional Gemini rewording**, not a model-driven agent:
+1. The incoming message is lowercased, checked for caller role & student scope, and matched against fixed Python keyword conditions.
+2. The matched function queries SQLite via SQLAlchemy and constructs a grounded reply.
+3. If `GEMINI_API_KEY` is configured, the grounded text is optionally reworded via the Gemini API; otherwise the deterministic reply is returned directly.
 
----
+### Table 7: Query Assistant Fixed Query Functions
 
-## 1. TITLE AND OBJECTIVES
+| Function | Trigger Keywords | Output & Scope |
+|:---|:---|:---|
+| `query_attendance_shortages` | `"shortage"`, `"debarred"`, `"below 75"`, `"detained"` | Students below 75% (faculty / webhook) |
+| `calculate_attendance_recovery` | `"recovery"`, `"how many classes"`, `"reach 75"` | Lectures needed or buffer (students scoped to own ID) |
+| `draft_*_notice` | `"notice"`, `"circular"`, `"exam form"`, `"marksheet"`, `"draft"` | Sample circular templates (faculty / webhook) |
+| `query_student_scorecard` | Student name, enrollment no., or `"my marks"`, `"my scorecard"`, `"my grades"` | Individual scorecard (students scoped to own ID) |
+| `compute_department_analytics` | `"analytics"`, `"department"`, `"average"`, `"sgpa"` | Department KPIs & averages (faculty / webhook) |
+| `academic_rulebook_faq` | General questions / fallback | Configured illustrative rules summary |
 
-### 1.1 Project Title
-**DEPARTMENTAL ACADEMIC RECORD, RESULT & ATTENDANCE MANAGEMENT SYSTEM**  
-*Curricular Classification:* Capstone Project-II (Course Code: BTCSE 701, 7th Semester, 6 Credits), Department of Computer Science & Engineering, Jamia Hamdard, New Delhi.
-
-### 1.2 Primary Objectives
-1. **Automated Departmental Administration:** To eliminate paper-based marksheets, unversioned spreadsheets, and manual ledger computations by engineering an autonomous, web-accessible academic record platform.
-2. **Role-Based Access Control (RBAC):** To implement a multi-tiered security model utilizing JSON Web Tokens (JWT) and PBKDF2-HMAC password encryption, strictly preventing unauthorized data modification and horizontal privilege escalation.
-3. **Deterministic SGPA Calculation:** To construct an academic evaluation engine capable of dynamic Credit-Weighted Semester Grade Point Average (SGPA) computation in conformance with Jamia Hamdard's 10-point scale.
-4. **Attendance Debarment Auditing:** To establish an autonomous attendance tracker adhering to the mandatory university 75% lecture attendance policy, while maintaining mathematical independence between academic grading and exam eligibility.
-5. **Data Integrity & Relational Soundness:** To design a 3NF relational database schema backed by foreign keys, cascading deletions, and Pydantic v2 input validation guards that disallow illegal marks, negative values, and attendance inconsistencies.
-
-### 1.3 University Grading Policy
-The academic computation engine adheres to the standard university 10-point relative scale depicted in Table 1.1:
-
-#### Table 1.1: Illustrative Grade Scale and Grade Point Equivalencies
-| Percentage Range (%) | Letter Grade | Grade Point (GP) | Qualitative Assessment |
-|:---:|:---:|:---:|:---|
-| $\ge 90.00\%$ | **O** | **10** | Outstanding |
-| $80.00\% - 89.99\%$ | **A+** | **9** | Excellent |
-| $70.00\% - 79.99\%$ | **A** | **8** | Very Good |
-| $60.00\% - 69.99\%$ | **B+** | **7** | Good |
-| $50.00\% - 59.99\%$ | **B** | **6** | Above Average |
-| $40.00\% - 49.99\%$ | **P** | **5** | Pass |
-| $< 40.00\%$ | **F** | **0** | Fail / Backlog |
-
-$$\text{Course Percentage} = \left(\frac{\text{Internal Marks} + \text{External Marks}}{\text{Max Internal} + \text{Max External}}\right) \times 100$$
-
-$$\text{SGPA} = \frac{\sum_{i=1}^{n} (\text{Credits}_i \times \text{Grade Points}_i)}{\sum_{i=1}^{n} \text{Credits}_i}$$
+![Figure 3: Query assistant message flow](report_images/fig3_query_assistant_flow.png)
 
 ---
 
-## 2. INTRODUCTION
+## 8. SAMPLE TEST CASES (30/30 PASSED)
 
-In collegiate higher education institutions such as Jamia Hamdard, departmental academic management encompasses complex, recurring administrative processes: maintaining active student rosters, recording lecture attendance across semesters, tabulating continuous internal assessment marks, recording end-semester theoretical and laboratory scores, and generating final grade reports.
-
-Traditionally, departmental examination coordinators and course faculty have relied on manual marksheets or disconnected local spreadsheets. While spreadsheet software offers basic computation, it introduces severe systemic hazards: accidental formula deletion, absence of granular access control, susceptibility to undetected mark tampering, and lack of real-time visibility for students regarding attendance debarment risks.
-
-This capstone project (BTCSE 701) delivers a decoupled, enterprise-grade, client-server web architecture:
-- **Backend Architecture:** Built with **FastAPI**, an asynchronous, high-throughput Python web framework adhering to OpenAPI 3.1 standards.
-- **Relational Persistence:** Built with **SQLAlchemy ORM**, executing against a normalized relational database schema enforcing referential integrity, foreign key cascades, and unique composite constraints.
-- **Security Engineering:** Built with **PBKDF2-HMAC-SHA256** salted hashing (100,000 iterations) and **JWT (JSON Web Tokens)** containing role claims (`faculty` or `student`).
-- **Frontend Portal:** Built with **Streamlit**, providing a responsive, dual-portal interface featuring analytical KPI metric cards, interactive data grids, and search filters.
+All 30 automated tests in [`test_main.py`](test_main.py) run against a temporary isolated SQLite database and pass:
+- `TC-01`–`TC-15`: Authentication, RBAC isolation, student/course CRUD, marks/attendance validation, SGPA verification, 404 handling.
+- `TC-16`–`TC-22`: Department analytics, attendance recovery (shortage & buffer), demonstration admit card (eligible & withheld), no-dues clearance, batch attendance register.
+- `TC-23`–`TC-27`: Authenticated faculty query assistant (`query_attendance_shortages`, `draft_exam_form_notice`), WhatsApp XML/JSON simulator & Meta Cloud API webhook verification.
+- `TC-28`–`TC-30`: Unauthenticated `/ai/chat` rejected (`HTTP 401`), student blocked from department shortages/analytics/peer queries (`HTTP 403`), and student self-service `"my marks"` returning only own scorecard.
 
 ---
 
-## 3. PROBLEM STATEMENT
+## 9. SNAPSHOTS OF INPUT AND OUTPUT SCREENS
 
-Departmental academic coordinators confront recurring operational vulnerabilities during semester management:
-
-1. **Spreadsheet Fragility & Integrity Breaches:** Manual record-keeping in Excel files is inherently vulnerable to cell overwrites, unauthorized mark inflation, formula drift, and accidental data loss without revision history.
-2. **Absence of Role Isolation:** File-based sharing exposes confidential records to unauthorized inspection, allowing students to access or potentially modify peer marks and lecture records.
-3. **Error-Prone Credit-Weighted Mathematics:** Manually computing credit-weighted SGPAs across combinations of 3-credit and 4-credit courses (such as Advance Java, Advanced DBMS, Data Encryption, and Data Science) regularly generates manual transcription and rounding discrepancies.
-4. **Attendance Shortage Ambiguity:** University ordinances require students to maintain a minimum of 75% attendance in each registered subject. Without real-time calculation, students are unaware of attendance shortages until final examination admit cards are withheld.
-5. **Data Concurrency & Boundary Violations:** Manual mark entry lacks automated boundary validation, allowing erroneous inputs such as negative marks, internal marks exceeding maximum ceilings (e.g., > 40 for Advance Java), or classes attended exceeding total classes held.
-
-**Formal Problem Formulation:**  
-To architect, implement, and formally verify an authenticated, multi-tenant departmental management system that enforces strict role-based access control, disallows illegal database states through schema and runtime validation, isolates student scorecards cryptographically, and automates credit-weighted SGPA and attendance eligibility computation.
-
----
-
-## 4. SOFTWARE REQUIREMENTS SPECIFICATION (IEEE STD 830-1998 FORMAT)
-
-### 4.1 Introduction
-- **Purpose:** This document specifies the complete functional and non-functional requirements for the Departmental Academic Record, Result & Attendance Management System.
-- **Scope:** Covers student records, course cataloging, continuous internal assessment, end-semester evaluation, attendance tracking, and API integrations.
-- **Definitions & Abbreviations:** See the *List of Abbreviations* section.
-- **References:** IEEE Std 830-1998, RFC 7519 (JWT), NIST SP 800-63B.
-
-### 4.2 Overall Description
-- **Product Perspective:** Client-server web application running locally on departmental hardware. The ASGI backend runs at `http://127.0.0.1:8000`, serving REST endpoints to a Streamlit frontend at `http://localhost:8501`.
-- **User Classes:**
-  - *Faculty / Administrator:* Authorized to perform all CRUD operations on students, courses, marks, and attendance registers.
-  - *Student:* Authorized strictly to view their own verified scorecard, calculated SGPA, and subject-wise attendance metrics.
-- **Operating Environment:** Windows 10/11, Python 3.10+, modern web browser.
-- **Design Constraints:** Python 3, FastAPI, SQLAlchemy ORM, SQLite/PostgreSQL, Pydantic v2.
-
-### 4.3 Specific Functional Requirements
-- **FR-01: Authentication & Token Issuance:** The system shall authenticate user credentials via `POST /auth/login` and issue signed, time-bounded JWT bearer tokens containing the user's role and student identifier.
-- **FR-02: Role-Based Authorization Guard:** All administrative endpoints (`/students`, `/courses`, `/enrollments`) shall verify the bearer token and reject non-faculty requests with `HTTP 403 Forbidden`.
-- **FR-03: Student Identity Isolation:** The self-service endpoint `GET /me/scorecard` shall retrieve the student ID strictly from the verified JWT payload, preventing students from inspecting peer records.
-- **FR-04: Student Registry Management:** Faculty shall create, search, update, and delete student records with automated title-casing and duplicate enrollment number rejection (`HTTP 400`).
-- **FR-05: Course Curriculum Registry:** Faculty shall define courses specifying course codes, titles, credit weightings (1-10), and internal/external mark ceilings.
-- **FR-06: Mark Boundary Validation:** The system shall enforce boundary limits ($0 \le \text{marks} \le \text{max\_marks}$) and reject marks exceeding course limits or negative values (`HTTP 422`).
-- **FR-07: Attendance Constraint Auditing:** The system shall reject entries where classes attended exceed classes held (`HTTP 400`). For courses with zero classes held, it shall return `'Unavailable'` without division-by-zero exceptions.
-- **FR-08: Automated Credit-Weighted SGPA:** The evaluation engine shall dynamically compute credit-weighted SGPA upon scorecard request.
-- **FR-09: Attendance Debarment Separation:** The engine shall report attendance eligibility ($\ge 75\%$) independently from earned academic marks.
-
-### 4.4 Non-Functional Requirements
-- **Performance:** Sub-100ms response time for scorecard queries under local server execution.
-- **Reliability:** 100% pass rate across automated test suites; zero uncaught exceptions on boundary inputs.
-- **Security:** 100,000-iteration PBKDF2-HMAC-SHA256 password hashing with cryptographically secure random salts; secret keys isolated in `.env`.
-- **Maintainability:** Modularity achieved through clear separation of ORM models, Pydantic schemas, and route handlers.
+- **Figure 4:** Login screen (`report_images/01_login_screen.png`)
+- **Figure 5:** Faculty dashboard: academic records and student scorecard (`report_images/02_faculty_scorecards_tab1.png`)
+- **Figure 6:** Faculty dashboard: manage students (`report_images/03_faculty_manage_students_tab2.png`)
+- **Figure 7:** Faculty dashboard: manage courses (`report_images/04_faculty_manage_courses_tab3.png`)
+- **Figure 8:** Faculty dashboard: enrollments, marks and attendance (`report_images/05_faculty_enrollments_tab4.png`)
+- **Figure 9:** Student scorecard (`report_images/06_student_scorecard_dashboard.png`)
+- **Figure 10:** Interactive API documentation (`report_images/07_fastapi_swagger_ui.png`)
+- **Figure 11:** Faculty dashboard: departmental analytics and charts (`report_images/09_department_analytics.png`)
+- **Figure 12:** Faculty dashboard: batch daily attendance register (`report_images/10_batch_attendance_register.png`)
+- **Figure 13:** Student portal: attendance recovery calculator (`report_images/13_attendance_recovery_calculator.png`)
+- **Figure 14:** Student portal: demonstration exam-eligibility (admit card) view (`report_images/14_admit_card_view.png`)
+- **Figure 15:** Student portal: demonstration clearance (no-dues) view (`report_images/15_no_dues_clearance_view.png`)
+- **Figure 16:** Web query assistant chat interface (`report_images/11_query_assistant_chat.png`)
+- **Figure 17:** WhatsApp channel setup and live phone simulator (`report_images/12_whatsapp_simulator.png`)
 
 ---
 
-## 5. ENTITY RELATIONSHIP (ER) DIAGRAM & DATABASE DESIGN
+## 10. CONCLUSION
 
-The relational schema is normalized in Third Normal Form (3NF) across four core tables:
-
-```mermaid
-erDiagram
-    STUDENTS ||--o| USERS : "authenticates as (1:1)"
-    STUDENTS ||--o{ ENROLLMENTS : "has (1:N)"
-    COURSES ||--o{ ENROLLMENTS : "includes (1:N)"
-
-    STUDENTS {
-        int id PK "Auto-Increment"
-        string enrollment_no UK "Unique Index"
-        string name "Full Name"
-        string email UK "Unique Email"
-        int semester "Default = 7"
-    }
-
-    USERS {
-        int id PK "Auto-Increment"
-        string username UK "Unique Login"
-        string password_hash "PBKDF2-HMAC"
-        string salt "16-byte Hex"
-        string role "faculty or student"
-        int student_id FK "Nullable, Unique"
-    }
-
-    COURSES {
-        int id PK "Auto-Increment"
-        string code UK "Unique Code"
-        string title "Descriptive Title"
-        int credits "Weighting (1-10)"
-        float max_internal "Ceiling (Default 40.0)"
-        float max_external "Ceiling (Default 60.0)"
-    }
-
-    ENROLLMENTS {
-        int id PK "Auto-Increment"
-        int student_id FK "Cascade Delete"
-        string course_code FK "Cascade Delete"
-        float internal_marks "Default 0.0"
-        float external_marks "Default 0.0"
-        int classes_held "Default 0"
-        int classes_attended "Default 0"
-    }
-```
-
-### Relational Schema Specifications
-
-#### Table 4.1: `students` Table Specification
-| Column Name | Data Type | Constraint | Nullable | Description |
-|:---|:---|:---|:---:|:---|
-| `id` | INTEGER | PRIMARY KEY, AUTOINCREMENT | No | Surrogate Primary Key |
-| `enrollment_no` | VARCHAR(30) | UNIQUE, INDEX | No | University Enrollment Identifier |
-| `name` | VARCHAR(60) | NONE | No | Student Full Legal Name |
-| `email` | VARCHAR(100) | UNIQUE | No | Official Academic Email Address |
-| `semester` | INTEGER | DEFAULT = 7 | No | Current Registered Academic Semester |
-
-#### Table 4.2: `users` Authentication Table Specification
-| Column Name | Data Type | Constraint | Nullable | Description |
-|:---|:---|:---|:---:|:---|
-| `id` | INTEGER | PRIMARY KEY, AUTOINCREMENT | No | Surrogate Primary Key |
-| `username` | VARCHAR(50) | UNIQUE, INDEX | No | Unique Portal Login Username |
-| `password_hash` | VARCHAR(128) | NONE | No | 100k-iteration PBKDF2-HMAC-SHA256 Hash |
-| `salt` | VARCHAR(64) | NONE | No | Cryptographically Random 16-byte Hex Salt |
-| `role` | VARCHAR(20) | CHECK ('faculty', 'student') | No | Role-Based Access Control Discriminator |
-| `student_id` | INTEGER | FOREIGN KEY -> `students.id` | Yes | Foreign Key Link (ON DELETE CASCADE) |
-
-#### Table 4.3: `courses` Curriculum Table Specification
-| Column Name | Data Type | Constraint | Nullable | Description |
-|:---|:---|:---|:---:|:---|
-| `id` | INTEGER | PRIMARY KEY, AUTOINCREMENT | No | Surrogate Primary Key |
-| `code` | VARCHAR(20) | UNIQUE, INDEX | No | Course Code (e.g., BTCSE-702) |
-| `title` | VARCHAR(100) | NONE | No | Full Descriptive Course Title |
-| `credits` | INTEGER | CHECK (1 <= credits <= 10) | No | Course Credit Weighting (e.g., 4) |
-| `max_internal` | FLOAT | DEFAULT = 40.0 | No | Maximum Internal Continuous Assessment Ceiling |
-| `max_external` | FLOAT | DEFAULT = 60.0 | No | Maximum End-Semester Examination Ceiling |
-
-#### Table 4.4: `enrollments` Academic & Attendance Registry
-| Column Name | Data Type | Constraint | Nullable | Description |
-|:---|:---|:---|:---:|:---|
-| `id` | INTEGER | PRIMARY KEY, AUTOINCREMENT | No | Surrogate Primary Key |
-| `student_id` | INTEGER | FOREIGN KEY -> `students.id` | No | Enrolled Student ID (ON DELETE CASCADE) |
-| `course_code` | VARCHAR(20) | FOREIGN KEY -> `courses.code` | No | Enrolled Course Code (ON DELETE CASCADE) |
-| `internal_marks` | FLOAT | DEFAULT = 0.0 | No | Continuous Internal Assessment Marks Obtained |
-| `external_marks` | FLOAT | DEFAULT = 0.0 | No | End-Semester Examination Marks Obtained |
-| `classes_held` | INTEGER | DEFAULT = 0 | No | Total Subject Lectures Conducted |
-| `classes_attended`| INTEGER | DEFAULT = 0 | No | Total Subject Lectures Attended |
-
-*Composite Unique Constraint:* `UniqueConstraint('student_id', 'course_code', name='uq_student_course')` prevents redundant enrollments.
+The project produced a working web application in which faculty manage students, courses, enrollments, marks and attendance — including a batch roll-call operation and department-wide analytics — and students view only their own results together with self-service views. All 30 automated tests covering authentication, role isolation, validation, attendance, SGPA, self-service views, and the query assistant passed in the final verification run.
 
 ---
 
-## 6. SAMPLE TEST CASES & VERIFICATION MATRIX
+## 11. LIMITATIONS AND FUTURE SCOPE
 
-The system was evaluated through an automated test suite containing 15 pytest test cases running against an isolated SQLite test database. All 15 test cases passed in 3.11 seconds.
+### 11.1 Limitations
+- **Demonstration WhatsApp webhook scope:** While all portal REST routes (`/analytics/department`, `/ai/chat`, CRUD, self-service) enforce JWT + RBAC, `/webhook/whatsapp` remains an unauthenticated demonstration endpoint for Meta Cloud API and simulator testing.
+- The query assistant is a keyword-matched router, not a model-driven tool-calling agent.
+- Three of four items in the no-dues view (Library, Accounts, Proctor) are fixed demonstration values; the admit card view is an illustrative artifact with no administrative effect; the 75% threshold and grade scale are illustrative demo defaults.
+- Local SQLite execution, single semester scope, no grade-edit audit history, and no concurrency load testing.
 
-#### Table 5.1: Automated Pytest Execution Matrix
-| TC ID | Test Scenario | Input Data | Expected Result | Actual Result | Status |
-|:---:|:---|:---|:---|:---|:---:|
-| **TC-01** | Valid User Authentication | `faculty` / `faculty123` | HTTP 200, JWT token returned | HTTP 200, Token issued | **PASS** |
-| **TC-02** | Invalid Authentication Rejected | `faculty` / `wrongpassword` | HTTP 401 Unauthorized | HTTP 401 Unauthorized | **PASS** |
-| **TC-03** | Student Blocked from Admin Routes | `aarav` hits `POST /courses` | HTTP 403 Forbidden | HTTP 403 Forbidden | **PASS** |
-| **TC-04** | Student Scorecard Isolation | `aarav` attempts to read Student 2 | HTTP 403 Forbidden | HTTP 403 Forbidden | **PASS** |
-| **TC-05** | Student Creation by Faculty | `ENR-2023-104`, `kabir khan` | HTTP 201, Auto Title-Cased | HTTP 201, 'Kabir Khan' | **PASS** |
-| **TC-06** | Duplicate Enrollment No Rejected | Duplicate `ENR-2023-101` | HTTP 400 Bad Request | HTTP 400 Bad Request | **PASS** |
-| **TC-07** | Marks Above Max Ceiling Rejected | Internal marks = 45.0 (> 40.0) | HTTP 400 Bad Request | HTTP 400 Bad Request | **PASS** |
-| **TC-08** | Negative Marks Rejected | Internal marks = -5.0 | HTTP 422 Unprocessable | HTTP 422 Unprocessable | **PASS** |
-| **TC-09** | Duplicate Enrollment Blocked | Re-enroll Aarav in `BTCSE-702` | HTTP 400 Bad Request | HTTP 400 Bad Request | **PASS** |
-| **TC-10** | Attendance Percentage Calculation | Attended = 36, Held = 40 | Percentage = 90.00%, Eligible | Percentage = 90.00% | **PASS** |
-| **TC-11** | Shortage Decoupled from Grade | Attended = 24/40 (<75%), Marks = 74 | Shortage, Grade 'A' preserved | Shortage, Grade 'A' | **PASS** |
-| **TC-12** | Attended > Held Rejected | Attended = 25, Held = 20 | HTTP 400 Bad Request | HTTP 400 Bad Request | **PASS** |
-| **TC-13** | Zero Classes Held Handled Safely | Attended = 0, Held = 0 | None / 'Unavailable', No 0-div | None / 'Unavailable' | **PASS** |
-| **TC-14** | Credit-Weighted SGPA Verification | Aarav (4cr:O, 4cr:A+, 3cr:A) | $\text{SGPA} = \frac{100}{11} = 9.09$ | SGPA = 9.09 | **PASS** |
-| **TC-15** | Non-Existent Record Returns 404 | `GET /students/9999` | HTTP 404 Not Found | HTTP 404 Not Found | **PASS** |
+### 11.2 Future Scope
+- Map inbound WhatsApp numbers in `/webhook/whatsapp` to verified accounts and validate Meta webhook signatures (`X-Hub-Signature-256`).
+- Confirm official university grade scales and attendance ordinances with the department.
+- Replace keyword routing with a schema-driven LLM tool-calling agent and integrate real campus data sources.
+- Support multi-semester transcripts, change history, and PostgreSQL production deployment.
 
 ---
 
-## 7. SNAPSHOTS OF INPUT AND OUTPUT SCREENS
+## 12. BIBLIOGRAPHY
 
-### Figure 6.1: System Access & Portal Authentication Interface
-![System Access & Portal Authentication Interface](report_images/01_login_screen.png)  
-*Description:* The primary entry point for the portal. Users input credentials verified against PBKDF2 hashes, with JWT bearer tokens returned upon successful sign-in.
-
----
-
-### Figure 6.2: Faculty Portal — Academic Records & Dynamic Student Inspection
-![Faculty Portal: Academic Records & Dynamic Student Inspection](report_images/02_faculty_scorecards_tab1.png)  
-*Description:* Tab 1 of the Faculty Dashboard. Provides global enrollment search and dynamic student scorecard inspection (displaying Aarav Sharma's 9.09 SGPA and 85.45% attendance).
-
----
-
-### Figure 6.3: Faculty Portal — Student Registry Management (CRUD Operations)
-![Faculty Portal: Student Registry Management](report_images/03_faculty_manage_students_tab2.png)  
-*Description:* Tab 2 of the Faculty Dashboard. Enables student onboarding with automated account generation, roster browsing, and authorized student record removal.
-
----
-
-### Figure 6.4: Faculty Portal — Curriculum Configuration & Assessment Ceilings
-![Faculty Portal: Curriculum Configuration & Assessment Ceilings](report_images/04_faculty_manage_courses_tab3.png)  
-*Description:* Tab 3 of the Faculty Dashboard. Configures course codes (BTCSE-702, BTCSE-704), credit values, and maximum internal/external assessment ceilings.
-
----
-
-### Figure 6.5: Faculty Portal — Enrollment, Marks & Attendance Registry Entry
-![Faculty Portal: Enrollment, Marks & Attendance Registry Entry](report_images/05_faculty_enrollments_tab4.png)  
-*Description:* Tab 4 of the Faculty Dashboard. Allows faculty to enroll students, record continuous assessment marks, and update attendance counters with immediate validation.
-
----
-
-### Figure 6.6: Student Portal — Self-Service Personal Scorecard & Attendance Status
-![Student Portal: Self-Service Personal Scorecard & Attendance Status](report_images/06_student_scorecard_dashboard.png)  
-*Description:* Student view for Aarav Sharma (ENR-2023-101). Displays Semester, Calculated SGPA (9.09), Overall Attendance (85.45%), and subject-wise grade distributions.
-
----
-
-### Figure 6.7: Interactive OpenAPI 3.1 / Swagger UI Interface (`/docs`)
-![Interactive OpenAPI 3.1 / Swagger UI Interface](report_images/07_fastapi_swagger_ui.png)  
-*Description:* Interactive Swagger UI generated by FastAPI at `/docs`. Provides API discovery, schema exploration, and direct endpoint testing with JWT bearer token support.
-
----
-
-### Figure 6.8: Machine-Readable OpenAPI 3.1 REST Schema (`/openapi.json`)
-![Machine-Readable OpenAPI 3.1 REST Schema](report_images/08_openapi_schema.png)  
-*Description:* Machine-readable OpenAPI 3.1 specification at `/openapi.json`, defining endpoints, payloads, constraints, and security definitions.
-
----
-
-## 8. CONCLUSION
-
-The **Departmental Academic Record, Result & Attendance Management System** has been conceptualized, architected, implemented, and empirically verified as an academic management solution for the Department of Computer Science & Engineering, Jamia Hamdard.
-
-### Key Deliverables & Achievements:
-1. **Security & Role-Based Access:** Salted PBKDF2-HMAC password hashing and role-based JWT bearer authentication.
-2. **Computational Accuracy:** Automated credit-weighted SGPA computation in full compliance with Jamia Hamdard's 10-point scale.
-3. **Decoupled Attendance Logic:** Continuous tracking against the 75% attendance threshold without corrupting earned examination marks.
-4. **Automated Testing:** 100% pass rate across 15 automated test cases on an isolated database environment.
-5. **No Source Code Inclusion:** The report strictly adheres to departmental documentation formatting, containing system design, SRS, ER diagrams, test matrices, and interface snapshots without raw code snippets.
-
-The project satisfies all curricular and technical requirements of a 6-credit B.Tech Capstone Project-II (BTCSE 701).
-
----
-
-## 9. LIMITATIONS AND FUTURE SCOPE
-
-### 9.1 System Limitations
-1. **Localhost Execution:** Operates as a local prototype rather than on a public cloud server.
-2. **Manual Attendance Entry:** Relies on numerical count inputs rather than automated RFID/biometric collection.
-3. **Database Engine:** Uses SQLite for local zero-configuration execution; an enterprise deployment would benefit from a dedicated PostgreSQL instance.
-4. **PDF Generation:** Outputs interactive browser tables rather than generating digitally signed PDF grade sheets.
-
-### 9.2 Future Enhancements
-1. **Biometric Integration:** Integration with classroom IoT readers or dynamic QR code check-ins.
-2. **SMS & WhatsApp Alerts:** Automated notification dispatch to students and parents when attendance falls below 75%.
-3. **Official PDF Transcripts:** Automated generation of university-stamped, tamper-evident PDF marks cards with embedded cryptographic verification hashes.
-4. **Containerized Deployment:** Docker packaging for deployment on Jamia Hamdard campus infrastructure.
-
----
-
-## 10. BIBLIOGRAPHY
-
-[1] T. Ramírez, *FastAPI: Modern, High-Performance Web Framework for Building APIs with Python*, O'Reilly Media, Sebastopol, CA, 2023.  
-[2] M. Bayer, *SQLAlchemy: The Python SQL Toolkit and Object Relational Mapper*, Python Software Foundation, Tech. Rep., 2024.  
-[3] M. Jones, J. Bradley, and N. Sakimura, “JSON Web Token (JWT),” Internet Engineering Task Force (IETF), RFC 7519, May 2015. [Online]. Available: https://tools.ietf.org/html/rfc7519  
-[4] National Institute of Standards and Technology (NIST), “Digital Identity Guidelines: Authentication and Lifecycle Management,” NIST Special Publication 800-63B, Gaithersburg, MD, 2020.  
-[5] IEEE Computer Society, “IEEE Recommended Practice for Software Requirements Specifications,” IEEE Std 830-1998, Oct. 1998.  
-[6] E. F. Codd, “A Relational Model of Data for Large Shared Data Banks,” *Communications of the ACM*, vol. 13, no. 6, pp. 377–387, Jun. 1970.  
-[7] A. Treuille, T. Teixeira, and T. Kelly, *Streamlit: The Fastest Way to Build Data Apps in Python*, Snowflake Inc., Tech. Whitepaper, 2023.  
-[8] S. Colvin et al., *Pydantic: Data Validation and Settings Management Using Python Type Annotations*, Python Package Index, Version 2.6, 2024.  
-[9] H. Krekel et al., *pytest: Simple, Powerful Testing with Python*, pytest-dev team, Tech. Documentation, 2024. [Online]. Available: https://docs.pytest.org/  
-[10] Jamia Hamdard, *Curriculum and Evaluation Ordinances for Bachelor of Technology (Computer Science & Engineering)*, School of Engineering Sciences & Technology, New Delhi, India, Academic Regulations 2023–2026.  
+[1] S. Ramírez, "FastAPI documentation." https://fastapi.tiangolo.com/  
+[2] SQLAlchemy Authors, "SQLAlchemy 2.0 documentation." https://docs.sqlalchemy.org/  
+[3] Pydantic Services Inc., "Pydantic documentation." https://docs.pydantic.dev/  
+[4] SQLite Consortium, "SQLite documentation." https://www.sqlite.org/docs.html  
+[5] Snowflake Inc., "Streamlit documentation." https://docs.streamlit.io/  
+[6] Google, "Gemini API documentation." https://ai.google.dev/gemini-api/docs  
+[7] Sheryians AI School, "FastAPI Full Course," YouTube. https://www.youtube.com/watch?v=pGQfWLN2tMY  
+[8] IEEE Std 830-1998, *IEEE Recommended Practice for Software Requirements Specifications*, 1998.  
+[9] M. Jones, J. Bradley, and N. Sakimura, "JSON Web Token (JWT)," IETF RFC 7519, May 2015.  
+[10] K. Moriarty et al., "PKCS #5: Password-Based Cryptography Specification Version 2.1," IETF RFC 8018, Jan. 2017.  
+[11] Python Software Foundation, "hashlib — Secure hashes and message digests." https://docs.python.org/3/library/hashlib.html  
+[12] E. F. Codd, "A relational model of data for large shared data banks," *Commun. ACM*, vol. 13, no. 6, pp. 377–387, Jun. 1970.  
+[13] pytest-dev Team, "pytest documentation." https://docs.pytest.org/  
+[14] Meta Platforms, Inc., "WhatsApp Cloud API documentation." https://developers.facebook.com/docs/whatsapp/cloud-api  

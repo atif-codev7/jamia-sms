@@ -1,10 +1,11 @@
 from datetime import datetime
 import math
+import os
 import pandas as pd
 import requests
 import streamlit as st
 
-API_URL = "http://127.0.0.1:8000"
+API_URL = os.getenv("JAMIA_API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(
     page_title="Jamia Hamdard CSE — Academic Management System",
@@ -276,7 +277,7 @@ elif st.session_state.auth["role"] == "student":
         with s_tab2:
             st.subheader("🧮 'What-If' Attendance Recovery Simulator")
             st.caption(
-                "Calculates consecutive lectures required to satisfy Jamia Hamdard Ordinance 15 (75% Attendance Gate)."
+                "Calculates consecutive lectures required to satisfy the configured 75% attendance threshold (illustrative demo rule)."
             )
 
             rec_res = requests.get(f"{API_URL}/me/recovery-calculator", headers=headers)
@@ -330,7 +331,8 @@ elif st.session_state.auth["role"] == "student":
 
         # SUB-TAB 3: Digital Exam Admit Card with Debarment Gate
         with s_tab3:
-            st.subheader("🎟️ Digital Examination Admit Card (Hall Ticket)")
+            st.subheader("🎟️ Demonstration Exam-Eligibility View (Admit Card Mockup)")
+            st.caption("Illustrative self-service demonstration view — has no administrative effect and is not an official university document.")
             admit_res = requests.get(f"{API_URL}/me/admit-card", headers=headers)
             if admit_res.status_code == 200:
                 admit = admit_res.json()
@@ -339,9 +341,9 @@ elif st.session_state.auth["role"] == "student":
                         f"""
                     <div class="admit-card-unlocked">
                         <div style="text-align: center; border-bottom: 2px solid #006747; padding-bottom: 0.8rem; margin-bottom: 1rem;">
-                            <h2 style="color: #006747; margin:0;">JAMIA HAMDARD</h2>
-                            <p style="margin: 0.2rem 0; font-weight: 600;">Office of the Controller of Examinations — New Delhi 110062</p>
-                            <h4 style="margin: 0.4rem 0 0 0; color: #333;">END-TERM EXAMINATION ADMIT CARD (SEMESTER 7)</h4>
+                            <h2 style="color: #006747; margin:0;">JAMIA HAMDARD (DEMO VIEW)</h2>
+                            <p style="margin: 0.2rem 0; font-weight: 600;">Illustrative Examination Eligibility Prototype — New Delhi 110062</p>
+                            <h4 style="margin: 0.4rem 0 0 0; color: #333;">DEMONSTRATION ADMIT CARD VIEW (SEMESTER 7)</h4>
                         </div>
                         <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
                             <div>
@@ -350,24 +352,24 @@ elif st.session_state.auth["role"] == "student":
                                 <p><strong>Semester / Degree:</strong> 7th Semester | B.Tech CSE</p>
                             </div>
                             <div style="text-align: right;">
-                                <p><strong>Hall Ticket No:</strong> <code>{admit['hall_ticket_no']}</code></p>
+                                <p><strong>Demo Hall Ticket No:</strong> <code>{admit['hall_ticket_no']}</code></p>
                                 <p><strong>Attendance Standing:</strong> <span class="badge-eligible">75%+ Cleared ({admit['overall_attendance_percentage']}%)</span></p>
-                                <p><strong>Issued At:</strong> {admit['issued_at']}</p>
+                                <p><strong>Generated At:</strong> {admit['issued_at']}</p>
                             </div>
                         </div>
-                        <p><strong>Examination Center:</strong> {admit['exam_center']}</p>
-                        <p style="font-size: 0.85rem; color: #555;"><strong>Digital Verification Hash:</strong> <code>{admit['qr_verification_hash']}</code></p>
+                        <p><strong>Sample Venue:</strong> {admit['exam_center']}</p>
+                        <p style="font-size: 0.85rem; color: #555;"><strong>Placeholder Verification Hash:</strong> <code>{admit['qr_verification_hash']}</code></p>
                     </div>
                     """,
                         unsafe_allow_html=True,
                     )
-                    st.markdown("#### Timetable & Exam Venues")
+                    st.markdown("#### Illustrative Timetable & Venues")
                     sched_df = pd.DataFrame(admit["enrolled_courses"])
                     st.dataframe(sched_df, use_container_width=True)
                     st.download_button(
-                        label="🖨️ Download Official Admit Card (HTML)",
-                        data=f"<html><body><h1>Jamia Hamdard Hall Ticket</h1><p>Student: {admit['student_name']}</p><p>Enrollment: {admit['enrollment_no']}</p><p>Status: VERIFIED & CLEARED</p></body></html>",
-                        file_name=f"AdmitCard_{admit['enrollment_no']}.html",
+                        label="🖨️ Download Demonstration Admit Card (HTML)",
+                        data=f"<html><body><h1>Demonstration Hall Ticket (Not Official)</h1><p>Student: {admit['student_name']}</p><p>Enrollment: {admit['enrollment_no']}</p><p>Status: DEMO ELIGIBLE</p></body></html>",
+                        file_name=f"DemoAdmitCard_{admit['enrollment_no']}.html",
                         mime="text/html",
                         use_container_width=True,
                     )
@@ -375,14 +377,14 @@ elif st.session_state.auth["role"] == "student":
                     st.markdown(
                         f"""
                     <div class="admit-card-locked">
-                        <h2 style="color: #dc3545; margin-top:0;">⛔ ADMIT CARD WITHHELD — ATTENDANCE SHORTAGE</h2>
+                        <h2 style="color: #dc3545; margin-top:0;">⛔ ADMIT CARD WITHHELD — ATTENDANCE SHORTAGE (DEMO VIEW)</h2>
                         <p style="font-size: 1.1rem; color: #721c24;">
-                            <strong>Debarment Notice under Jamia Hamdard Academic Ordinance 15:</strong>
+                            <strong>Illustrative Threshold Notice (75% Demo Gate):</strong>
                         </p>
                         <p>{admit['debarment_reason']}</p>
                         <hr style="border-color: #f5c2c7;">
-                        <p><strong>Hall Ticket Status:</strong> <code>{admit['hall_ticket_no']}</code></p>
-                        <p><strong>Immediate Action:</strong> Please report to the Office of Head of Department (HOD) CSE, School of Engineering Sciences & Technology to submit attendance undertakings or verified medical exemption slips.</p>
+                        <p><strong>Demo Hall Ticket Status:</strong> <code>{admit['hall_ticket_no']}</code></p>
+                        <p><strong>Illustrative Next Step:</strong> In a live deployment, students with attendance shortages would consult the course coordinator or department office.</p>
                     </div>
                     """,
                         unsafe_allow_html=True,
@@ -390,8 +392,8 @@ elif st.session_state.auth["role"] == "student":
 
         # SUB-TAB 4: Digital No-Dues Clearance Status
         with s_tab4:
-            st.subheader("📋 Digital 'No-Dues' Clearance Matrix")
-            st.caption("Replaces physical paper signature rounds across university departments.")
+            st.subheader("📋 Demonstration Clearance View ('No-Dues')")
+            st.caption("Illustrative clearance matrix: Practical Labs reflects live database attendance; Library, Accounts, and Proctor use fixed demonstration values.")
             nd_res = requests.get(f"{API_URL}/me/no-dues", headers=headers)
             if nd_res.status_code == 200:
                 nd = nd_res.json()
@@ -444,13 +446,15 @@ elif st.session_state.auth["role"] == "student":
 
         # SUB-TAB 6: AI Student Concierge
         with s_tab6:
-            st.subheader("💬 AI Student Concierge")
-            st.caption("Ask questions about your marks, syllabus, attendance recovery, or exam rules.")
+            st.subheader("💬 Query Assistant (Student Portal)")
+            st.caption("Ask about your own marks, SGPA, attendance recovery, or illustrative academic rules.")
             s_prompt = st.chat_input("Type your question for the academic assistant...")
             if s_prompt:
                 ai_r = requests.post(f"{API_URL}/ai/chat", headers=headers, json={"message": s_prompt})
                 if ai_r.status_code == 200:
                     st.markdown(ai_r.json()["reply"])
+                else:
+                    st.warning(ai_r.json().get("detail", "Request restricted by role-based access control."))
 
 
 # =====================================================================
@@ -508,7 +512,7 @@ elif st.session_state.auth["role"] == "faculty":
 
             # Attendance Shortage Watchlist
             st.divider()
-            st.markdown("#### 🚨 Attendance Shortage & Debarment Watchlist (Ordinance 15)")
+            st.markdown("#### 🚨 Attendance Shortage Watchlist (Configured 75% Illustrative Threshold)")
             if an_data["shortage_students"]:
                 short_df_rows = []
                 for s in an_data["shortage_students"]:
@@ -886,10 +890,10 @@ elif st.session_state.auth["role"] == "faculty":
                 ]
                 st.dataframe(pd.DataFrame(receipts), use_container_width=True)
 
-    # --- TAB 6: AI ACADEMIC ASSISTANT (TOOL CALLING #1 + #5) ---
+    # --- TAB 6: QUERY ASSISTANT ---
     with tab6:
-        st.subheader("💬 AI Academic Assistant (Tool Calling #1 + #5)")
-        st.caption("Direct natural language access to departmental database and academic rules.")
+        st.subheader("💬 Academic Query Assistant")
+        st.caption("Rule-based database query assistant with optional Gemini API natural-language rewording.")
 
         st.write("💡 **Quick Queries (Click to Run):**")
         p1, p2, p3, p4 = st.columns(4)

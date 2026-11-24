@@ -4,7 +4,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.32%2B-FF4B4B.svg)](https://streamlit.io/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0%2B-D71F00.svg)](https://www.sqlalchemy.org/)
-[![Pytest](https://img.shields.io/badge/Pytest-26%2F26%20Passed-brightgreen.svg)](https://pytest.org/)
+[![Pytest](https://img.shields.io/badge/Pytest-30%2F30%20Passed-brightgreen.svg)](https://pytest.org/)
 
 **B.Tech Computer Science & Engineering — 7th Semester (Capstone Project-II: BTCSE 701, 6 Credits)**  
 *Department of Computer Science & Engineering, School of Engineering Sciences & Technology (SEST)*  
@@ -59,7 +59,7 @@ graph TD
 
 ---
 
-## 🧪 Automated Testing Suite (24/24 Passed)
+## 🧪 Automated Testing Suite (30/30 Passed)
 
 The project includes an automated Pytest test suite (`test_main.py`) verifying all functional, mathematical, security, and AI constraints:
 
@@ -92,6 +92,9 @@ The project includes an automated Pytest test suite (`test_main.py`) verifying a
 | `TC-25` | WhatsApp Webhook (XML) | Returns valid XML for mobile gateway fallback | ✅ PASS |
 | `TC-26` | WhatsApp Webhook (JSON) | Delivers structured reply for phone simulator | ✅ PASS |
 | `TC-27` | Meta WhatsApp Cloud API | GET verification challenge & POST payload | ✅ PASS |
+| `TC-28` | Query Assistant Auth Guard | Unauthenticated `/ai/chat` rejected (`401`) | ✅ PASS |
+| `TC-29` | Query Assistant & Analytics RBAC | Student blocked from dept shortages, analytics & peer records (`403`) | ✅ PASS |
+| `TC-30` | Student Self-Service Query | `"Show my marks"` returns own scorecard only (`200`) | ✅ PASS |
 
 ---
 
